@@ -35,12 +35,13 @@ namespace HardwareConfiguration
     // (same map as WLED's SEENGREAT_V2_S3_PINOUT, https://seengreat.com/wiki/186),
     // so do not renumber. It stays clear of flash (26-32), octal PSRAM (33-37),
     // native USB (19/20) and UART0 (43/44).
-    static const int8_t HUB75_R1 = 18;
+    // R and B are swapped vs. the wiki: this panel's channel order is BGR.
+    static const int8_t HUB75_R1 = 17;
     static const int8_t HUB75_G1 = 8;
-    static const int8_t HUB75_B1 = 17;
-    static const int8_t HUB75_R2 = 16;
+    static const int8_t HUB75_B1 = 18;
+    static const int8_t HUB75_R2 = 15;
     static const int8_t HUB75_G2 = 1;
-    static const int8_t HUB75_B2 = 15;
+    static const int8_t HUB75_B2 = 16;
     static const int8_t HUB75_A = 7;
     static const int8_t HUB75_B = 48;
     static const int8_t HUB75_C = 6;
