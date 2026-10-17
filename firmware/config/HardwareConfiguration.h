@@ -31,23 +31,24 @@ namespace HardwareConfiguration
     static const int8_t HUB75_LAT = 47;
     static const int8_t HUB75_OE = 14;
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
-    // ESP32-S3-DevKitC-1 N16R8 map. Every pin exists on the S3 (GPIO 0-21, 26-48)
-    // and AVOIDS: 26-32 (SPI flash), 33-37 (octal PSRAM), 0/3/45/46 (strapping),
-    // 19/20 (native USB), 43/44 (UART0). Verify against your wiring.
-    static const int8_t HUB75_R1 = 4;
-    static const int8_t HUB75_G1 = 5;
-    static const int8_t HUB75_B1 = 6;
-    static const int8_t HUB75_R2 = 7;
-    static const int8_t HUB75_G2 = 8;
-    static const int8_t HUB75_B2 = 9;
-    static const int8_t HUB75_A = 10;
-    static const int8_t HUB75_B = 11;
-    static const int8_t HUB75_C = 12;
-    static const int8_t HUB75_D = 13;
-    static const int8_t HUB75_E = 14;  // 1/32-scan (64-row) panels; set to -1 for 32-row
-    static const int8_t HUB75_LAT = 15;
-    static const int8_t HUB75_OE = 16;
-    static const int8_t HUB75_CLK = 17;
+    // Seengreat HUB75 adapter V2 on an ESP32-S3-DevKitC-1 N16R8. Fixed by the PCB
+    // (same map as WLED's SEENGREAT_V2_S3_PINOUT, https://seengreat.com/wiki/186),
+    // so do not renumber. It stays clear of flash (26-32), octal PSRAM (33-37),
+    // native USB (19/20) and UART0 (43/44).
+    static const int8_t HUB75_R1 = 18;
+    static const int8_t HUB75_G1 = 8;
+    static const int8_t HUB75_B1 = 17;
+    static const int8_t HUB75_R2 = 16;
+    static const int8_t HUB75_G2 = 1;
+    static const int8_t HUB75_B2 = 15;
+    static const int8_t HUB75_A = 7;
+    static const int8_t HUB75_B = 48;
+    static const int8_t HUB75_C = 6;
+    static const int8_t HUB75_D = 47;
+    static const int8_t HUB75_E = 2;  // 1/32-scan (64-row) panels; set to -1 for 32-row
+    static const int8_t HUB75_LAT = 21;
+    static const int8_t HUB75_OE = 4;
+    static const int8_t HUB75_CLK = 5;
 #else
     // ESP32 (original) map — matches the common ESP32-HUB75-MatrixPanel-I2S-DMA wiring.
     static const int8_t HUB75_R1 = 25;
@@ -103,9 +104,10 @@ namespace HardwareConfiguration
     static const int8_t BUTTON_A_EXT_PIN = 10; // A3
     static const int8_t BUTTON_B_EXT_PIN = 11; // A4
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
-    // I2C is on 41/42 here, so 21 is genuinely free.
-    static const int8_t BUTTON_A_PIN = 18;
-    static const int8_t BUTTON_B_PIN = 21;
+    // Moved from 18/21 (HUB75 R1/LAT on the Seengreat V2 map) to 13/14, which are
+    // unused by HUB75, I2C (41/42), flash, PSRAM and USB. Rewire any existing buttons.
+    static const int8_t BUTTON_A_PIN = 13;
+    static const int8_t BUTTON_B_PIN = 14;
     // No external pair wired on this board. -1 means "absent", and Buttons.cpp
     // skips any pin below zero rather than calling pinMode(-1).
     static const int8_t BUTTON_A_EXT_PIN = -1;
@@ -165,8 +167,8 @@ namespace HardwareConfiguration
     static const int8_t I2C_SCL = 42;
     // ADC1 on the S3 is GPIO 1-10 — NOT 32-39. Worse, 33-37 are the octal PSRAM on an
     // N16R8, so the classic default of 34 would point analogRead() at a live PSRAM
-    // pin. HUB75 already owns 4-17, leaving 1/2/3; 3 is a strapping pin, so 1 it is.
-    static const uint8_t LIGHT_ANALOG_PIN = 1;
+    // pin. The Seengreat map owns 1/2/4-8, leaving 3 (strapping), 9 and 10.
+    static const uint8_t LIGHT_ANALOG_PIN = 9;
     static const uint8_t ADC1_PIN_MIN = 1;
     static const uint8_t ADC1_PIN_MAX = 10;
 #else
@@ -232,8 +234,8 @@ namespace HardwareConfiguration
     static const uint8_t ADC1_FREE_MIN = 9;
     static const uint8_t ADC1_FREE_MAX = 9;
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
-    static const uint8_t ADC1_FREE_MIN = 1;
-    static const uint8_t ADC1_FREE_MAX = 3;
+    static const uint8_t ADC1_FREE_MIN = 9;
+    static const uint8_t ADC1_FREE_MAX = 10;
 #else
     static const uint8_t ADC1_FREE_MIN = 33;
     static const uint8_t ADC1_FREE_MAX = 39;
