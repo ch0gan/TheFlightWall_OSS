@@ -20,6 +20,7 @@ Inputs: FlightInfo list; g_settings (colors/brightness/layout/cycle/geometry).
 #include "config/FunFacts.h"
 #include "utils/ServerJson.h" // renderable()
 #include "utils/ProgressBar.h" // progressFillPixels()
+#include "utils/RouteDistance.h"
 #include "core/Settings.h"
 #include "utils/ClockFormat.h"
 
@@ -561,7 +562,8 @@ int16_t Hub75Display::trackedLabelX() const
     if (!usesMiniCard())
         return -1;
     const int16_t w = (int16_t)(TRACKED_LABEL_LEN * 6); // 6px advance per glyph
-    const int16_t x = (int16_t)(_matrixWidth - 1 - w);
+    // Glyphs are 5px in a 6px cell, so ending the last cell at _matrixWidth-1 lights up to x=126.
+    const int16_t x = (int16_t)(_matrixWidth - w);
     return x >= 0 ? x : (int16_t)-1;
 }
 
@@ -634,7 +636,7 @@ void Hub75Display::drawTrackedChrome(const FlightInfo &f)
 
     // y=1 clears the border's own top row. The label and the airline name share
     // rows 4-7 but never a column: at 128px the name is cut to 7 chars, ending
-    // at x=80, and the label starts at x=85.
+    // at x=80, and the label starts at x=86.
     const int16_t x = trackedLabelX();
     if (x >= 0)
         drawTextLine(x, 1, String(TRACKED_LABEL), white);
@@ -778,6 +780,17 @@ static String miniSpdMph(double kt, bool unit)
     return String((long)(kt * 1.15078 + 0.5)) + (unit ? "mph" : "");
 }
 
+// Distance from the configured center, in miles. Empty when unknown.
+static String miniDistMi(double km)
+{
+    if (!renderable(km))
+        return String("");
+    const double mi = km * 0.621371;
+    char b[12];
+    snprintf(b, sizeof(b), mi < 10.0 ? "%.1fmi" : "%.0fmi", mi);
+    return String(b);
+}
+
 static String miniTrk(double deg, bool unit)
 {
     if (!renderable(deg))
@@ -898,10 +911,25 @@ void Hub75Display::displayMiniCard(const FlightInfo &f)
     if (_lastDrewLogo)
         airline = stripAirlineWords(airline);
 
-    if (topColsAirline > 0)
-        drawTextLine(tx, topY, truncateToColumns(airline, topColsAirline), color);
+    // "Dist" labels the center distance on the row below it, right-aligned to it.
+    // Not on tracked cards: TRACKED owns that corner.
+    const String dist = miniDistMi(f.distance_km);
+    const bool showDist = dist.length() && (int)(route.length() + 1 + dist.length()) <= topCols;
+    int topColsAirlineFit = topColsAirline;
+    if (showDist && labelX < 0)
+    {
+        const int16_t labelXDist = (int16_t)(_matrixWidth - 4 * 6);
+        topColsAirlineFit = (labelXDist - 2 - tx) / 6;
+        drawTextLine(labelXDist, topY, String("Dist"), color);
+    }
+
+    if (topColsAirlineFit > 0)
+        drawTextLine(tx, topY, truncateToColumns(airline, topColsAirlineFit), color);
     if (route.length())
         drawTextLine(tx, topY + 11, truncateToColumns(route, topCols), color);
+    // Right-aligned on the route row; IATA routes are 7 chars but ICAO fallbacks reach 9.
+    if (showDist)
+        drawTextLine((int16_t)(_matrixWidth - (int)dist.length() * 6), topY + 11, dist, color);
     if (type.length())
         drawTextLine(tx, topY + 22, truncateToColumns(type, topCols), color);
 
@@ -1038,6 +1066,21 @@ void Hub75Display::displayMiniCard(const FlightInfo &f)
             drawTextLine(1, by, row2.substring(0, sep), etaColor);
             drawTextLine((int16_t)(1 + sep * 6), by, row2.substring(sep), color);
         }
+    }
+
+    // Route bar: share of the great-circle origin->destination distance already flown.
+    // Tracked cards draw their own (schedule-based) bar in drawTrackedChrome.
+    const double routePct = routeProgressPct(f.origin.lat, f.origin.lon,
+                                             f.destination.lat, f.destination.lon,
+                                             f.lat, f.lon);
+    if (!hasProgressBar(f) && std::isfinite(routePct) && trackedProgressRow() >= 0)
+    {
+        const int16_t y = trackedProgressRow();
+        const int16_t w = (int16_t)(_matrixWidth - 2);
+        _canvas->fillRect(1, y, w, kProgressBarH, progressTrack());
+        const int filled = progressFillPixels(routePct, w);
+        if (filled > 0)
+            _canvas->fillRect(1, y, (int16_t)filled, kProgressBarH, progressGreen());
     }
 }
 

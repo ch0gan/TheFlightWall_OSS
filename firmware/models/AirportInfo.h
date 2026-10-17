@@ -6,6 +6,8 @@ struct AirportInfo
 {
     String code_icao;
     String code_iata;
+    double lat = NAN; // NAN when the source carries no coordinates (adsbdb does; hexdb/FR24/server do not)
+    double lon = NAN;
 
     /**
      * The code to show. IATA when we have it, ICAO otherwise.

@@ -13,6 +13,7 @@ class AdsbdbFetcher : public BaseFlightFetcher
 {
 public:
     bool fetchFlightInfo(const String &flightIdent, const String &icao24, FlightInfo &outInfo) override;
+    bool fetchAirportCoords(const String &iata, double &lat, double &lon) override; // hexdb.io
     void setHttp(HttpJson *http) { _http = http; }
 
 private:

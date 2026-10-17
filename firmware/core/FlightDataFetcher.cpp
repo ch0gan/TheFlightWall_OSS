@@ -24,8 +24,59 @@ HTTP call on most cycles instead of paying its timeout every 30s forever.
 #include "core/Settings.h"
 #include "core/Filters.h"
 #include "utils/FlightClassify.h"
+#include "utils/AirportCoords.h"
 
 #include <algorithm>
+
+// Airport coordinates learned from any adsbdb response, keyed by IATA. Valid for the
+// airport itself even when adsbdb's route for that callsign is stale. Bounded.
+struct LearnedAirport
+{
+    String iata;
+    double lat;
+    double lon;
+};
+static std::vector<LearnedAirport> g_learnedAirports;
+
+// Airports hexdb could not resolve, so they are not re-requested every cycle.
+struct AirportMiss
+{
+    String iata;
+    unsigned long ms;
+};
+static std::vector<AirportMiss> g_airportMisses;
+static int g_airportLookupsThisCycle = 0;
+static const int kMaxAirportLookupsPerCycle = 3;
+static const unsigned long kAirportRetryMs = 10UL * 60UL * 1000UL;
+
+static void learnAirport(const AirportInfo &a)
+{
+    if (!a.code_iata.length() || isnan(a.lat) || isnan(a.lon))
+        return;
+    for (const LearnedAirport &l : g_learnedAirports)
+        if (l.iata == a.code_iata)
+            return;
+    if (g_learnedAirports.size() < 150)
+        g_learnedAirports.push_back({a.code_iata, a.lat, a.lon});
+}
+
+static bool airportCoord(const String &iata, double &lat, double &lon)
+{
+    if (!iata.length())
+        return false;
+    for (const LearnedAirport &l : g_learnedAirports)
+    {
+        if (l.iata.equalsIgnoreCase(iata))
+        {
+            lat = l.lat;
+            lon = l.lon;
+            return true;
+        }
+    }
+    String up = iata;
+    up.toUpperCase();
+    return seedAirportCoord(up.c_str(), lat, lon);
+}
 
 // OpenSky reports SI units; convert to the aviation units the display uses.
 static constexpr double kMetersToFeet = 3.28084;
@@ -235,6 +286,7 @@ size_t FlightDataFetcher::fetchFlights(std::vector<FlightInfo> &outFlights, bool
     outFlights.clear();
     ok = false;
     _cycleStartMs = millis(); // starts the enrichment budget (see kEnrichBudgetMs)
+    g_airportLookupsThisCycle = 0;
 
     // Reset every cycle so a source switch away from FlightWallServer -- or a
     // cycle that falls back to adsb.lol below -- can't leave a previous cycle's
@@ -422,10 +474,11 @@ size_t FlightDataFetcher::fetchAreaModeWith(BaseStateVectorFetcher *src,
             return;
 
         FlightInfo info;
-        // Skip the per-flight network lookup ONLY when the feed carried the route;
-        // that is the expensive thing we are avoiding. Best-effort: once the budget
+        // Skip the per-flight route lookup when the feed carried the route; that is
+        // the expensive thing we are avoiding. Best-effort: once the budget
         // is spent this serves cache-only, so the card still renders (callsign +
-        // logo below) just without a route.
+        // logo below) just without a route. Inline-route flights skip it and resolve
+        // airport coordinates below instead.
         //
         // Under OpenSky this is simply the normal path — the flag is never set
         // there. Under FR24 it is the GA/private and unscheduled case: FR24 has no
@@ -434,7 +487,55 @@ size_t FlightDataFetcher::fetchAreaModeWith(BaseStateVectorFetcher *src,
         // maxFlights and the 45s budget, so the cost is wasted round trips, not
         // watchdog headroom.
         if (!s.hasInlineRoute())
+        {
             getEnriched(s.callsign, s.icao24, info, withinEnrichBudget());
+        }
+        else
+        {
+            // Inline route (FR24): the route is trusted from the feed, so coordinates come
+            // from the feed's own airport codes -- never from adsbdb's route for the
+            // callsign, which is often a different leg.
+            auto resolveAirport = [&](const String &iata, AirportInfo &out)
+            {
+                if (airportCoord(iata, out.lat, out.lon))
+                    return;
+                if (!iata.length() || !_adsbdb || !withinEnrichBudget() ||
+                    g_airportLookupsThisCycle >= kMaxAirportLookupsPerCycle)
+                    return;
+                const unsigned long now = millis();
+                for (const AirportMiss &m : g_airportMisses)
+                    if (m.iata.equalsIgnoreCase(iata) && now - m.ms < kAirportRetryMs)
+                        return;
+                g_airportLookupsThisCycle++;
+                double lat = NAN, lon = NAN;
+                if (_adsbdb->fetchAirportCoords(iata, lat, lon))
+                {
+                    AirportInfo a;
+                    a.code_iata = iata;
+                    a.lat = lat;
+                    a.lon = lon;
+                    learnAirport(a);
+                    out.lat = lat;
+                    out.lon = lon;
+                    return;
+                }
+                for (AirportMiss &m : g_airportMisses)
+                {
+                    if (m.iata.equalsIgnoreCase(iata))
+                    {
+                        m.ms = now;
+                        return;
+                    }
+                }
+                if (g_airportMisses.size() < 60)
+                    g_airportMisses.push_back({iata, now});
+            };
+            resolveAirport(s.origin_iata, info.origin);
+            resolveAirport(s.dest_iata, info.destination);
+            if (isnan(info.origin.lat) || isnan(info.destination.lat))
+                Serial.printf("[geo] %s no bar: no coords for %s or %s yet\n",
+                              s.callsign.c_str(), s.origin_iata.c_str(), s.dest_iata.c_str());
+        }
 
         // Overlay whatever the position source carried inline (e.g. FlightRadar24
         // ships route, type and operator in the same feed). Applied AFTER the
@@ -511,6 +612,8 @@ size_t FlightDataFetcher::fetchAreaModeWith(BaseStateVectorFetcher *src,
             info.vertical_rate_fpm = s.vertical_rate * kMetersPerSecToFpm;
         info.is_helicopter = (s.category == 8); // ADS-B rotorcraft category
         info.distance_km = s.distance_km;
+        info.lat = s.lat;
+        info.lon = s.lon;
 
         // Fall back to the live callsign as ident if AeroAPI gave us nothing.
         if (info.ident.length() == 0)

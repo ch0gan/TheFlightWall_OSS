@@ -50,6 +50,8 @@ struct FlightInfo
     // differently so the panel never asserts a position nobody measured.
     bool position_estimated = false;
     double distance_km = NAN;       // distance from configured center (Area mode)
+    double lat = NAN;               // aircraft position (Area mode); NAN on the server path
+    double lon = NAN;
 
     // Time remaining to destination. NAN = unknown, and unknown renders blank.
     //

@@ -57,13 +57,44 @@ bool AdsbdbFetcher::fetchRoute(const String &callsign, FlightInfo &out)
     {
         out.origin.code_icao = jstr(o, "icao_code");
         out.origin.code_iata = jstr(o, "iata_code");
+        if (o["latitude"].is<double>() && o["longitude"].is<double>())
+        {
+            out.origin.lat = o["latitude"].as<double>();
+            out.origin.lon = o["longitude"].as<double>();
+        }
     }
     JsonObject d = fr["destination"].as<JsonObject>();
     if (!d.isNull())
     {
         out.destination.code_icao = jstr(d, "icao_code");
         out.destination.code_iata = jstr(d, "iata_code");
+        if (d["latitude"].is<double>() && d["longitude"].is<double>())
+        {
+            out.destination.lat = d["latitude"].as<double>();
+            out.destination.lon = d["longitude"].as<double>();
+        }
     }
+    return true;
+}
+
+bool AdsbdbFetcher::fetchAirportCoords(const String &iata, double &lat, double &lon)
+{
+    String code = iata;
+    code.trim();
+    if (code.length() < 3 || code.length() > 4 || !_http)
+        return false;
+    // The code is spliced into a URL, so only plain letters/digits are allowed.
+    for (size_t i = 0; i < code.length(); i++)
+        if (!isalnum((unsigned char)code[i]))
+            return false;
+
+    JsonDocument doc;
+    if (!_http->getJson(String("https://hexdb.io/api/v1/airport/iata/") + code, doc))
+        return false;
+    if (!doc["latitude"].is<double>() || !doc["longitude"].is<double>())
+        return false;
+    lat = doc["latitude"].as<double>();
+    lon = doc["longitude"].as<double>();
     return true;
 }
 
