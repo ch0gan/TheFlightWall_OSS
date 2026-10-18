@@ -29,6 +29,8 @@ struct StateVector
     String dest_iata;
     String aircraft_type;         // ICAO type, e.g. "B738"
     String airline_icao;          // operator ICAO, e.g. "AAL"
+    String flight_number;         // commercial number, e.g. "AA100"; FR24 only
+    String registration;          // tail number; FR24 only
 
     /**
      * True only when the feed supplied a ROUTE. Gates skipping the per-flight

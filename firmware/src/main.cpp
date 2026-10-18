@@ -16,6 +16,7 @@ Run loop:
 - React to settings changes / restart requests from the web UI.
 */
 #include <vector>
+#include <atomic>
 #include <utility>
 #include <time.h>
 #include <WiFi.h>
@@ -569,12 +570,48 @@ static void logHeap(const char *tag)
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 }
 
-static void doFetchAndRender()
+// The network fetch runs on its own task so loop() (web UI, buttons, card rotation)
+// never waits on a slow or failing source. loop() applies the result when it is done.
+static std::atomic<bool> g_fetchRunning{false};
+static std::atomic<bool> g_fetchDone{false};
+static std::vector<FlightInfo> g_fetchResult;
+static bool g_fetchOk = false;
+static size_t g_fetchEnriched = 0;
+
+static void runFetch()
 {
-    logHeap("cycle-start");
     std::vector<FlightInfo> flights;
     bool ok = false;
     size_t enriched = g_fetcher->fetchFlights(flights, ok);
+    g_fetchResult = std::move(flights);
+    g_fetchOk = ok;
+    g_fetchEnriched = enriched;
+    g_fetchDone = true;
+}
+
+static void fetchTaskFn(void *)
+{
+    runFetch();
+    vTaskDelete(nullptr);
+}
+
+static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t enriched);
+
+static void startFetch()
+{
+    logHeap("cycle-start");
+    g_fetchDone = false;
+    g_fetchRunning = true;
+    // Core 0 alongside the WiFi stack; loop() and the panel stay on core 1.
+    if (xTaskCreatePinnedToCore(fetchTaskFn, "fetch", 16384, nullptr, 1, nullptr, 0) != pdPASS)
+    {
+        Serial.println("fetch task create failed; fetching inline");
+        runFetch();
+    }
+}
+
+static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t enriched)
+{
     if (!ok)
     {
         if (g_consecutiveFailures < 255)
@@ -1333,14 +1370,24 @@ void loop()
         g_consecutiveFailures,
         g_consecutiveEmpty);
 
-    const unsigned long now = millis();
-    if (!g_firstFetchDone || (now - g_lastFetchMs >= intervalMs))
+    unsigned long now = millis();
+    if (g_fetchRunning && g_fetchDone)
+    {
+        g_fetchRunning = false;
+        applyFetchResult(std::move(g_fetchResult), g_fetchOk, g_fetchEnriched);
+        // Interval counts from completion so a slow fetch cannot run back to back,
+        // but keep a pending "fetch now" request (0) from a settings change.
+        if (g_lastFetchMs != 0)
+            g_lastFetchMs = millis();
+        now = millis();
+    }
+    if (!g_fetchRunning && (!g_firstFetchDone || (now - g_lastFetchMs >= intervalMs)))
     {
         g_lastFetchMs = now;
         // Pairs every fetch outcome with the radio state that produced it, so a
         // failure can be read against RSSI/BSSID/channel instead of guessed at.
         RadioDiag::logSnapshot("pre-fetch");
-        doFetchAndRender();
+        startFetch();
     }
     else if (now - g_lastRenderMs >= 200)
     {

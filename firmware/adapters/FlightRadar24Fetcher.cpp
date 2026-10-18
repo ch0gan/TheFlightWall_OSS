@@ -196,6 +196,216 @@ bool FlightRadar24Fetcher::fetchStateVectors(double centerLat,
     return true;
 }
 
+bool FlightRadar24Fetcher::fetchByIdent(const String &ident,
+                                        double fromLat,
+                                        double fromLon,
+                                        std::vector<StateVector> &outStateVectors)
+{
+    String id = ident;
+    id.trim();
+    if (id.length() == 0)
+        return false;
+    for (size_t i = 0; i < id.length(); i++)
+    {
+        char c = id[i];
+        if (!isalnum((unsigned char)c) && c != '-')
+            return false;
+    }
+
+    // Step 1: search. The hit carries a position rounded to 0.1 deg, enough to aim step 2.
+    HTTPClient http;
+    http.begin(secureClient(), String("https://www.flightradar24.com/v1/search/web/find?query=") +
+                                   id + "&limit=25&type=live");
+    http.setTimeout(15000);
+    http.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/122.0 Safari/537.36");
+    http.addHeader("Accept", "application/json");
+    http.addHeader("Origin", "https://www.flightradar24.com");
+    http.addHeader("Referer", "https://www.flightradar24.com/");
+    int code = http.GET();
+    if (code != 200)
+    {
+        Serial.printf("FlightRadar24Fetcher: search HTTP %d for %s\n", code, id.c_str());
+        http.end();
+        return false;
+    }
+    String body = http.getString();
+    http.end();
+
+    JsonDocument filter;
+    filter["results"][0]["type"] = true;
+    filter["results"][0]["id"] = true;
+    filter["results"][0]["detail"]["lat"] = true;
+    filter["results"][0]["detail"]["lon"] = true;
+    filter["results"][0]["detail"]["callsign"] = true;
+    filter["results"][0]["detail"]["flight"] = true;
+    filter["results"][0]["detail"]["reg"] = true;
+    filter["results"][0]["detail"]["schd_from"] = true;
+    filter["results"][0]["detail"]["schd_to"] = true;
+    filter["results"][0]["detail"]["ac_type"] = true;
+    filter["results"][0]["detail"]["operator"] = true;
+    JsonDocument doc;
+    if (deserializeJson(doc, body, DeserializationOption::Filter(filter)))
+    {
+        Serial.println("FlightRadar24Fetcher: search JSON parse error");
+        return false;
+    }
+
+    String tailNoDash = id;
+    tailNoDash.replace("-", "");
+    double hitLat = NAN, hitLon = NAN;
+    String hitId;
+    StateVector hit; // what the search itself knows; used when the feed has no row
+    for (JsonObject r : doc["results"].as<JsonArray>())
+    {
+        if (String(r["type"] | "") != "live")
+            continue;
+        JsonObject d = r["detail"];
+        String cs = String(d["callsign"] | "");
+        String fl = String(d["flight"] | "");
+        String reg = String(d["reg"] | "");
+        reg.replace("-", "");
+        if (cs.equalsIgnoreCase(id) || fl.equalsIgnoreCase(id) || reg.equalsIgnoreCase(tailNoDash))
+        {
+            if (d["lat"].is<double>() && d["lon"].is<double>())
+            {
+                hitLat = d["lat"].as<double>();
+                hitLon = d["lon"].as<double>();
+                hit.callsign = cs;
+                hit.flight_number = fl;
+                hit.registration = String(d["reg"] | "");
+                hit.origin_iata = String(d["schd_from"] | "");
+                hit.dest_iata = String(d["schd_to"] | "");
+                hit.aircraft_type = String(d["ac_type"] | "");
+                hit.airline_icao = String(d["operator"] | "");
+                hit.lat = hitLat;
+                hit.lon = hitLon;
+                hitId = String(r["id"] | "");
+                break;
+            }
+        }
+    }
+    if (isnan(hitLat) || isnan(hitLon))
+    {
+        Serial.printf("[fr24] %s: no live search hit\n", id.c_str());
+        return false; // not airborne / not found
+    }
+    // Step 2: full telemetry from a small feed.js box around the hit, keeping only the
+    // row whose key is the hit's flight id (the 40-row cap would otherwise cut it).
+    std::vector<StateVector> rows;
+    m_wantId = hitId;
+    bool got = fetchStateVectors(hitLat, hitLon, 20.0, rows);
+    m_wantId = "";
+    if (!got)
+        return false;
+    if (rows.empty())
+    {
+        // Oceanic/estimated flights are in search but not in feed.js; read telemetry from
+        // the flight's own detail record instead, falling back to the search data alone.
+        Serial.printf("[fr24] %s: hit %s not in feed box, using detail\n", id.c_str(), hitId.c_str());
+        readDetail(hitId, hit);
+        rows.push_back(hit);
+    }
+    for (StateVector &s : rows)
+    {
+        s.distance_km = haversineKm(fromLat, fromLon, s.lat, s.lon);
+        s.bearing_deg = computeBearingDeg(fromLat, fromLon, s.lat, s.lon);
+        outStateVectors.push_back(s);
+    }
+    return true;
+}
+
+void FlightRadar24Fetcher::readDetail(const String &flightId, StateVector &s)
+{
+    HTTPClient http;
+    http.begin(secureClient(), String("https://data-live.flightradar24.com/clickhandler/?version=1.5&flight=") + flightId);
+    http.setTimeout(15000);
+    http.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/122.0 Safari/537.36");
+    http.addHeader("Accept", "application/json");
+    http.addHeader("Origin", "https://www.flightradar24.com");
+    http.addHeader("Referer", "https://www.flightradar24.com/");
+    int code = http.GET();
+    if (code != 200)
+    {
+        Serial.printf("[fr24] detail HTTP %d\n", code);
+        http.end();
+        return;
+    }
+    // The reply carries photos and flight history on top of the trail (hundreds of KB);
+    // read it whole (PSRAM) and keep only the fields used below.
+    String body = http.getString();
+    http.end();
+    if (body.length() == 0)
+    {
+        Serial.println("[fr24] detail: empty body (read failed or out of memory)");
+        return;
+    }
+
+    JsonDocument filter;
+    filter["aircraft"]["hex"] = true;
+    filter["trail"][0]["lat"] = true;
+    filter["trail"][0]["lng"] = true;
+    filter["trail"][0]["alt"] = true;
+    filter["trail"][0]["spd"] = true;
+    filter["trail"][0]["hd"] = true;
+    filter["trail"][0]["ts"] = true;
+#if defined(BOARD_HAS_PSRAM)
+    static PsramAllocator psramAllocator;
+    JsonDocument doc(&psramAllocator);
+#else
+    JsonDocument doc;
+#endif
+    if (DeserializationError err = deserializeJson(doc, body, DeserializationOption::Filter(filter)))
+    {
+        Serial.printf("[fr24] detail JSON parse error: %s (%u bytes)\n", err.c_str(), (unsigned)body.length());
+        return;
+    }
+
+    s.icao24 = String(doc["aircraft"]["hex"] | "");
+    s.icao24.toLowerCase();
+
+    JsonArray trail = doc["trail"].as<JsonArray>();
+    if (trail.isNull() || trail.size() == 0)
+    {
+        Serial.printf("[fr24] detail: no trail in %u bytes\n", (unsigned)body.length());
+        return;
+    }
+    JsonObject p = trail[0]; // newest point first
+    if (p["lat"].is<double>() && p["lng"].is<double>())
+    {
+        s.lat = p["lat"].as<double>();
+        s.lon = p["lng"].as<double>();
+    }
+    if (p["alt"].is<double>())
+        s.baro_altitude = p["alt"].as<double>() * kFeetToMeters;
+    s.geo_altitude = s.baro_altitude;
+    if (p["spd"].is<double>())
+        s.velocity = p["spd"].as<double>() * kKnotsToMetersPerSec;
+    if (p["hd"].is<double>())
+        s.heading = p["hd"].as<double>();
+
+    // The detail has no climb rate; derive it from the point about a minute older.
+    if (p["alt"].is<double>() && p["ts"].is<double>())
+    {
+        const double ts0 = p["ts"].as<double>();
+        const double alt0 = p["alt"].as<double>();
+        for (JsonObject q : trail)
+        {
+            if (!q["ts"].is<double>() || !q["alt"].is<double>())
+                continue;
+            const double dt = ts0 - q["ts"].as<double>();
+            if (dt >= 60.0)
+            {
+                s.vertical_rate = ((alt0 - q["alt"].as<double>()) / (dt / 60.0)) * kFpmToMetersPerSec;
+                break;
+            }
+        }
+    }
+    Serial.printf("[fr24] detail ok: %u bytes, %u trail pts, alt=%.0fm\n", (unsigned)body.length(),
+                  (unsigned)trail.size(), s.baro_altitude);
+}
+
 void FlightRadar24Fetcher::parseFeedInto(JsonDocument &doc, double centerLat,
                                          double centerLon, double radiusKm,
                                          std::vector<StateVector> &out)
@@ -209,6 +419,8 @@ void FlightRadar24Fetcher::parseFeedInto(JsonDocument &doc, double centerLat,
         // Skip the two scalar metadata keys; every other key is a flight id -> array.
         JsonArray a = kv.value().as<JsonArray>();
         if (a.isNull() || a.size() < 19)
+            continue;
+        if (m_wantId.length() && m_wantId != kv.key().c_str())
             continue;
 
         StateVector s;
@@ -246,6 +458,8 @@ void FlightRadar24Fetcher::parseFeedInto(JsonDocument &doc, double centerLat,
         s.dest_iata = a[12].isNull() ? String("") : String(a[12].as<const char *>());
         s.aircraft_type = a[8].isNull() ? String("") : String(a[8].as<const char *>());
         s.airline_icao = a[18].isNull() ? String("") : String(a[18].as<const char *>());
+        s.flight_number = a[13].isNull() ? String("") : String(a[13].as<const char *>());
+        s.registration = a[9].isNull() ? String("") : String(a[9].as<const char *>());
         // ROUTE only. This flag decides whether to SKIP the per-flight enrichment
         // lookup, and only the route justifies skipping it — a feed that supplied
         // just the aircraft type used to suppress the route lookup forever, so the

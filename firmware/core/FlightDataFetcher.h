@@ -176,6 +176,8 @@ private:
                              std::vector<FlightInfo> &outFlights,
                              bool &ok);
     size_t fetchFlightsMode(std::vector<FlightInfo> &outFlights, bool &ok);
+    // Fills out.lat/lon from the local table, else adsbdb (budgeted, misses remembered).
+    void resolveAirport(const String &iata, AirportInfo &out);
     // One HTTP call to the FlightWall server; fills outFlights directly and skips
     // Area-mode enrichment entirely. outStates is unused on the happy path but is
     // threaded through because the failure path falls back into fetchAreaModeWith,

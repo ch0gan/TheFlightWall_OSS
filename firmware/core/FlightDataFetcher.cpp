@@ -417,6 +417,42 @@ const char *FlightDataFetcher::sourceNameOf(const BaseStateVectorFetcher *src) c
     return "unknown";
 }
 
+void FlightDataFetcher::resolveAirport(const String &iata, AirportInfo &out)
+{
+    if (airportCoord(iata, out.lat, out.lon))
+        return;
+    if (!iata.length() || !_adsbdb || !withinEnrichBudget() ||
+        g_airportLookupsThisCycle >= kMaxAirportLookupsPerCycle)
+        return;
+    const unsigned long now = millis();
+    for (const AirportMiss &m : g_airportMisses)
+        if (m.iata.equalsIgnoreCase(iata) && now - m.ms < kAirportRetryMs)
+            return;
+    g_airportLookupsThisCycle++;
+    double lat = NAN, lon = NAN;
+    if (_adsbdb->fetchAirportCoords(iata, lat, lon))
+    {
+        AirportInfo a;
+        a.code_iata = iata;
+        a.lat = lat;
+        a.lon = lon;
+        learnAirport(a);
+        out.lat = lat;
+        out.lon = lon;
+        return;
+    }
+    for (AirportMiss &m : g_airportMisses)
+    {
+        if (m.iata.equalsIgnoreCase(iata))
+        {
+            m.ms = now;
+            return;
+        }
+    }
+    if (g_airportMisses.size() < 60)
+        g_airportMisses.push_back({iata, now});
+}
+
 size_t FlightDataFetcher::fetchAreaModeWith(BaseStateVectorFetcher *src,
                                             std::vector<StateVector> &outStates,
                                             std::vector<FlightInfo> &outFlights,
@@ -495,41 +531,6 @@ size_t FlightDataFetcher::fetchAreaModeWith(BaseStateVectorFetcher *src,
             // Inline route (FR24): the route is trusted from the feed, so coordinates come
             // from the feed's own airport codes -- never from adsbdb's route for the
             // callsign, which is often a different leg.
-            auto resolveAirport = [&](const String &iata, AirportInfo &out)
-            {
-                if (airportCoord(iata, out.lat, out.lon))
-                    return;
-                if (!iata.length() || !_adsbdb || !withinEnrichBudget() ||
-                    g_airportLookupsThisCycle >= kMaxAirportLookupsPerCycle)
-                    return;
-                const unsigned long now = millis();
-                for (const AirportMiss &m : g_airportMisses)
-                    if (m.iata.equalsIgnoreCase(iata) && now - m.ms < kAirportRetryMs)
-                        return;
-                g_airportLookupsThisCycle++;
-                double lat = NAN, lon = NAN;
-                if (_adsbdb->fetchAirportCoords(iata, lat, lon))
-                {
-                    AirportInfo a;
-                    a.code_iata = iata;
-                    a.lat = lat;
-                    a.lon = lon;
-                    learnAirport(a);
-                    out.lat = lat;
-                    out.lon = lon;
-                    return;
-                }
-                for (AirportMiss &m : g_airportMisses)
-                {
-                    if (m.iata.equalsIgnoreCase(iata))
-                    {
-                        m.ms = now;
-                        return;
-                    }
-                }
-                if (g_airportMisses.size() < 60)
-                    g_airportMisses.push_back({iata, now});
-            };
             resolveAirport(s.origin_iata, info.origin);
             resolveAirport(s.dest_iata, info.destination);
             if (isnan(info.origin.lat) || isnan(info.destination.lat))
@@ -655,6 +656,21 @@ size_t FlightDataFetcher::fetchFlightsMode(std::vector<FlightInfo> &outFlights, 
     // tracked list is user-curated and an ident simply may not be airborne now.
     ok = true;
     size_t enriched = 0;
+
+    // Per-flight lookup, never an area search: the configured source first (FR24 supports
+    // it), then adsb.lol. OpenSky has no per-flight lookup, so it falls through to adsb.lol.
+    BaseStateVectorFetcher *sources[2] = {activeStateFetcher(), _adsbLolState};
+    static unsigned long s_adsbSkipUntilMs = 0;
+    auto matches = [](const StateVector &r, const String &ident)
+    {
+        String reg = r.registration, want = ident;
+        reg.replace("-", "");
+        want.replace("-", "");
+        return r.callsign.equalsIgnoreCase(ident) || r.icao24.equalsIgnoreCase(ident) ||
+               (r.flight_number.length() && r.flight_number.equalsIgnoreCase(ident)) ||
+               (reg.length() && reg.equalsIgnoreCase(want));
+    };
+
     for (const String &ident : g_settings.trackedFlights)
     {
         if (outFlights.size() >= g_settings.maxFlights)
@@ -663,35 +679,124 @@ size_t FlightDataFetcher::fetchFlightsMode(std::vector<FlightInfo> &outFlights, 
             continue;
 
         FlightInfo info;
-        // Unlike Area mode, a miss here drops the card (see below), so an exhausted
-        // budget means this ident simply waits for the next cycle.
-        bool ok = getEnriched(ident, String(""), info, withinEnrichBudget());
+        // A miss means not airborne/unseen; the card then falls back to enrichment-only data.
+        StateVector live;
+        bool haveLive = false;
+        for (int i = 0; i < 2 && !haveLive; i++)
+        {
+            BaseStateVectorFetcher *src = sources[i];
+            if (!src || (i == 1 && src == sources[0]) || !withinEnrichBudget())
+                continue;
+            // adsb.lol answers "not found" with success; a failure is the transport. Back off
+            // so a dead link costs one timeout per 5 minutes, not one per flight per cycle.
+            if (src == _adsbLolState && (long)(s_adsbSkipUntilMs - millis()) > 0)
+                continue;
+            std::vector<StateVector> rows;
+            if (!src->fetchByIdent(ident, g_settings.centerLat, g_settings.centerLon, rows))
+            {
+                if (src == _adsbLolState)
+                    s_adsbSkipUntilMs = millis() + 300000UL;
+                continue;
+            }
+            for (const StateVector &r : rows)
+            {
+                if (matches(r, ident))
+                {
+                    live = r;
+                    haveLive = true;
+                    _lastSource = sourceNameOf(src);
+                    break;
+                }
+            }
+            // The per-ident lookup already pinned this aircraft; a lone row is it even if
+            // the ident was a form we don't compare (e.g. IATA number without feed number).
+            if (!haveLive && rows.size() == 1)
+            {
+                live = rows[0];
+                haveLive = true;
+                _lastSource = sourceNameOf(src);
+            }
+        }
+        Serial.printf("[flights] %s: %s\n", ident.c_str(), haveLive ? "live" : "no live data");
+
+        // Display identity: the broadcast callsign when known (ident may be a flight number).
+        const String cs = (haveLive && live.callsign.length()) ? live.callsign : ident;
+
+        // Inline route (FR24): trust it over adsbdb, which often returns a different leg,
+        // and skip that lookup as Area mode does.
+        bool ok = true;
+        if (haveLive && live.hasInlineRoute())
+        {
+            info = FlightInfo();
+            resolveAirport(live.origin_iata, info.origin);
+            resolveAirport(live.dest_iata, info.destination);
+        }
+        else
+        {
+            // Unlike Area mode, a miss here drops the card (see below), so an exhausted
+            // budget means this ident simply waits for the next cycle.
+            ok = getEnriched(ident, haveLive ? live.icao24 : String(""), info, withinEnrichBudget());
+        }
         if (!ok)
         {
-            if (g_settings.enrichmentSource == EnrichmentSource::Off)
+            if (g_settings.enrichmentSource == EnrichmentSource::Off || haveLive)
                 info = FlightInfo(); // callsign-only card
             else
                 continue;
         }
 
-        applyLocalIdentity(ident, info);
+        if (haveLive)
+        {
+            if (live.aircraft_type.length())
+                info.aircraft_code = live.aircraft_type;
+            if (live.origin_iata.length())
+                info.origin.code_iata = live.origin_iata;
+            if (live.dest_iata.length())
+                info.destination.code_iata = live.dest_iata;
+            if (live.airline_icao.length() && info.operator_icao.length() == 0)
+            {
+                info.operator_icao = live.airline_icao;
+                info.operator_iata = "";
+                info.operator_code = "";
+                info.airline_display_name_full = "";
+            }
+            double altM = !isnan(live.geo_altitude) ? live.geo_altitude : live.baro_altitude;
+            if (!isnan(altM))
+                info.altitude_ft = altM * kMetersToFeet;
+            if (!isnan(live.velocity))
+                info.groundspeed_kt = live.velocity * kMetersPerSecToKnots;
+            if (!isnan(live.heading))
+                info.heading_deg = live.heading;
+            if (!isnan(live.vertical_rate))
+                info.vertical_rate_fpm = live.vertical_rate * kMetersPerSecToFpm;
+            info.is_helicopter = (live.category == 8);
+            info.distance_km = live.distance_km;
+            info.lat = live.lat;
+            info.lon = live.lon;
+        }
+
+        applyLocalIdentity(cs, info);
 
         // Positive-signal classification (same rule as Area mode) for consistent
         // display tagging. This is a user-curated list, so no two-pass / hide here.
         info.is_cargo = isCargoOperator(info.operator_icao.c_str());
-        info.is_private = (info.operator_icao.length() == 0) && isTailNumber(ident.c_str());
+        info.is_private = (info.operator_icao.length() == 0) && isTailNumber(cs.c_str());
 
-        if (!passesAirlineAllowList(info))
+        if (!passesAirlineAllowList(info) || isAirlineDenied(info))
+        {
+            Serial.printf("[flights] %s dropped by airline filter\n", ident.c_str());
             continue;
-        if (isAirlineDenied(info))
-            continue;
+        }
 
         // Altitude-band filter (on_ground is rarely reported here; honor it best-effort).
         if (!Filters::altitudeInBand(info.altitude_ft, g_settings.filters.minAltitudeFt, g_settings.filters.maxAltitudeFt))
+        {
+            Serial.printf("[flights] %s dropped by altitude band (%.0f ft)\n", ident.c_str(), info.altitude_ft);
             continue;
+        }
 
         if (info.ident.length() == 0)
-            info.ident = ident;
+            info.ident = cs;
 
         outFlights.push_back(info);
         enriched++;
