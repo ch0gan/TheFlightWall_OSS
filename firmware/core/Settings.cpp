@@ -255,12 +255,16 @@ String Settings::serialize(bool redactSecrets) const
     disp["textColorR"] = textColorR;
     disp["textColorG"] = textColorG;
     disp["textColorB"] = textColorB;
+    disp["progressColorR"] = progressColorR;
+    disp["progressColorG"] = progressColorG;
+    disp["progressColorB"] = progressColorB;
     disp["maxFlights"] = maxFlights;
     disp["cycleSeconds"] = cycleSeconds;
     disp["fetchIntervalSeconds"] = fetchIntervalSeconds;
 
     JsonObject lay = doc.createNestedObject("layout");
     lay["showAirlineFlight"] = layout.showAirlineFlight;
+    lay["showLogo"] = layout.showLogo;
     lay["showRoute"] = layout.showRoute;
     lay["showAircraft"] = layout.showAircraft;
     lay["showAltitude"] = layout.showAltitude;
@@ -268,6 +272,8 @@ String Settings::serialize(bool redactSecrets) const
     lay["showHeading"] = layout.showHeading;
     lay["showVerticalRate"] = layout.showVerticalRate;
     lay["showEta"] = layout.showEta;
+    lay["showDistance"] = layout.showDistance;
+    lay["showProgressBar"] = layout.showProgressBar;
     lay["flightNumberOverVr"] = layout.flightNumberOverVr;
     lay["noFlightsMode"] = layout.noFlightsMode;
 
@@ -419,6 +425,12 @@ bool Settings::fromJson(const String &in)
             textColorG = disp["textColorG"].as<uint8_t>();
         if (disp.containsKey("textColorB"))
             textColorB = disp["textColorB"].as<uint8_t>();
+        if (disp.containsKey("progressColorR"))
+            progressColorR = disp["progressColorR"].as<uint8_t>();
+        if (disp.containsKey("progressColorG"))
+            progressColorG = disp["progressColorG"].as<uint8_t>();
+        if (disp.containsKey("progressColorB"))
+            progressColorB = disp["progressColorB"].as<uint8_t>();
         if (disp.containsKey("maxFlights"))
             maxFlights = disp["maxFlights"].as<uint8_t>();
         if (disp.containsKey("cycleSeconds"))
@@ -431,6 +443,7 @@ bool Settings::fromJson(const String &in)
     {
         JsonObject lay = doc["layout"];
         layout.showAirlineFlight = lay["showAirlineFlight"] | layout.showAirlineFlight;
+        layout.showLogo = lay["showLogo"] | layout.showLogo;
         layout.showRoute = lay["showRoute"] | layout.showRoute;
         layout.showAircraft = lay["showAircraft"] | layout.showAircraft;
         layout.showAltitude = lay["showAltitude"] | layout.showAltitude;
@@ -438,6 +451,8 @@ bool Settings::fromJson(const String &in)
         layout.showHeading = lay["showHeading"] | layout.showHeading;
         layout.showVerticalRate = lay["showVerticalRate"] | layout.showVerticalRate;
         layout.showEta = lay["showEta"] | layout.showEta;
+        layout.showDistance = lay["showDistance"] | layout.showDistance;
+        layout.showProgressBar = lay["showProgressBar"] | layout.showProgressBar;
         layout.flightNumberOverVr = lay["flightNumberOverVr"] | layout.flightNumberOverVr;
         if (lay.containsKey("noFlightsMode"))
             layout.noFlightsMode = lay["noFlightsMode"].as<String>();

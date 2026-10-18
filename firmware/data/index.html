@@ -125,12 +125,6 @@
     <label>FlightAware AeroAPI key <span style="color:var(--muted)">(for AeroAPI source or backup)</span></label>
     <input id="aeroApiKey" type="password" />
 
-    <label>Remote control token <span style="color:var(--muted)">(optional)</span></label>
-    <input id="controlToken" type="password" />
-    <small class="help">Lets you see and control this wall from your FlightWall server when you are
-      not on this network. Must match <b>CONTROL_TOKEN</b> on the server. Leave blank to keep the
-      feature off — the device then never checks in. <b>WiFi settings can never be changed remotely</b>,
-      by design: a wrong network would put the wall out of reach with no way back but a cable.</small>
     <span class="check"><input type="checkbox" id="enrichmentFallbackToAeroApi"><label>Use AeroAPI as backup when adsbdb misses a flight (needs key)</label></span>
   </div>
 
@@ -229,6 +223,7 @@
     <div class="row">
       <div><label>Brightness (0–255)</label><input id="brightness" type="number" min="0" max="255" /></div>
       <div><label>Text color</label><input id="textColor" type="color" /></div>
+      <div><label>Progress bar color</label><input id="progressColor" type="color" /></div>
       <div><label>Seconds per flight</label><input id="cycleSeconds" type="number" min="1" /></div>
     </div>
     <small class="help">Seconds per flight is how long each card holds the panel before the carousel moves on. How many flights it cycles through is <b>Max flights</b>, under Advanced.</small>
@@ -236,6 +231,7 @@
       <div><label>When no flights</label>
         <select id="noFlightsMode">
           <option value="dots">Dots (...)</option>
+          <option value="blank">Blank</option>
           <option value="clock">Clock</option>
           <option value="funfact">Fun fact</option>
           <option value="clockfact">Clock + fun fact</option>
@@ -245,9 +241,12 @@
 
     <div class="sec">Fields on each card</div>
     <div class="checks">
+      <span class="check"><input type="checkbox" id="showLogo"><label>Logo</label></span>
       <span class="check"><input type="checkbox" id="showAirlineFlight"><label>Airline + flight</label></span>
       <span class="check"><input type="checkbox" id="showRoute"><label>Route</label></span>
       <span class="check"><input type="checkbox" id="showEta"><label>ETA</label></span>
+      <span class="check"><input type="checkbox" id="showDistance"><label>Distance from center</label></span>
+      <span class="check"><input type="checkbox" id="showProgressBar"><label>Progress bar</label></span>
       <span class="check"><input type="checkbox" id="showAircraft"><label>Aircraft type</label></span>
       <span class="check"><input type="checkbox" id="showAltitude"><label>Altitude</label></span>
       <span class="check"><input type="checkbox" id="showSpeed"><label>Speed</label></span>
@@ -294,28 +293,8 @@
       <b>A:</b> click = panel off/on · hold = brighter &nbsp;|&nbsp; <b>B:</b> click = cycle no-flights mode · hold = dimmer<br>
       A held brightness overrides the schedule and the light sensor until the next automatic change.</small>
 
-    <div class="sec">Web UI</div>
-    <small class="help" id="uiSource">…</small>
-    <div class="bar" style="margin-top:8px">
-      <button class="ghost" type="button" onclick="updateUi()">Update from server</button>
-      <button class="ghost" type="button" onclick="clearUi()">Use built-in</button>
-    </div>
-    <small class="help">This page can be downloaded from your FlightWall server instead of being
-      reflashed, so a UI change no longer costs a cable and your settings. The built-in copy is never
-      overwritten — it is what you get if the download fails its checksum or the server is unreachable,
-      and <b>Use built-in</b> goes back to it at any time.</small>
-
     <div class="sec">Firmware</div>
     <small class="help" id="fwState">…</small>
-    <div class="bar" style="margin-top:8px">
-      <button class="ghost" type="button" onclick="checkFirmware()">Check for update</button>
-      <button class="warn" type="button" onclick="installFirmware()">Install update</button>
-    </div>
-    <small class="help">Updates are <b>signed</b>. The device downloads the image into its spare
-      partition and checks the signature against a key built into the firmware before anything is made
-      bootable — so a server that has been tampered with, or a network that intercepts the download,
-      cannot make the wall run code you did not sign. If the new image boots but cannot reach the
-      network, the bootloader puts the old one back by itself.</small>
 
     <div class="sec">Flight list</div>
     <div class="row">
@@ -465,7 +444,6 @@ async function loadSettings(){
   $('openSkyClientId').value = s.api.openSkyClientId || '';
   secretField('openSkyClientSecret', s.api.openSkyClientSecretSet);
   secretField('aeroApiKey', s.api.aeroApiKeySet);
-  secretField('controlToken', s.api.controlTokenSet);
   $('positionSource').value = s.api.positionSource || 'opensky';
   $('serverUrl').value = s.api.serverUrl || '';
   $('enrichmentSource').value = s.api.enrichmentSource || 'adsbdb';
@@ -483,11 +461,12 @@ async function loadSettings(){
 
   $('brightness').value = s.display.brightness;
   $('textColor').value = rgbToHex(s.display.textColorR, s.display.textColorG, s.display.textColorB);
+  $('progressColor').value = rgbToHex(s.display.progressColorR, s.display.progressColorG, s.display.progressColorB);
   $('maxFlights').value = s.display.maxFlights;
   $('cycleSeconds').value = s.display.cycleSeconds;
   $('fetchIntervalSeconds').value = s.display.fetchIntervalSeconds;
 
-  for (const k of ['showAirlineFlight','showRoute','showEta','showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr'])
+  for (const k of ['showLogo','showAirlineFlight','showRoute','showEta','showDistance','showProgressBar','showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr'])
     $(k).checked = !!s.layout[k];
   selectValue('noFlightsMode', s.layout.noFlightsMode || 'dots', 'Stored');
 
@@ -541,10 +520,11 @@ async function loadSettings(){
 function secret(id){ const v=$(id).value; return v ? {[id]:v} : {}; }
 function collect(){
   const [r,g,b] = hexToRgb($('textColor').value);
+  const [pr,pg,pb] = hexToRgb($('progressColor').value);
   const lines = v => v.split(/[\n,]/).map(x=>x.trim()).filter(Boolean);
   return {
     network:{ wifiSsid:$('wifiSsid').value, ...secret('wifiPassword') },
-    api:{ openSkyClientId:$('openSkyClientId').value, ...secret('openSkyClientSecret'), ...secret('aeroApiKey'), ...secret('controlToken'), positionSource:$('positionSource').value, serverUrl:$('serverUrl').value, enrichmentSource:$('enrichmentSource').value, enrichmentFallbackToAeroApi:$('enrichmentFallbackToAeroApi').checked, enrichmentCacheSeconds:+$('enrichmentCacheSeconds').value },
+    api:{ openSkyClientId:$('openSkyClientId').value, ...secret('openSkyClientSecret'), ...secret('aeroApiKey'), positionSource:$('positionSource').value, serverUrl:$('serverUrl').value, enrichmentSource:$('enrichmentSource').value, enrichmentFallbackToAeroApi:$('enrichmentFallbackToAeroApi').checked, enrichmentCacheSeconds:+$('enrichmentCacheSeconds').value },
     tracking:{
       mode:$('mode').value,
       centerLat:parseFloat($('centerLat').value), centerLon:parseFloat($('centerLon').value),
@@ -554,10 +534,11 @@ function collect(){
     },
     display:{
       brightness:+$('brightness').value, textColorR:r, textColorG:g, textColorB:b,
+      progressColorR:pr, progressColorG:pg, progressColorB:pb,
       maxFlights:+$('maxFlights').value, cycleSeconds:+$('cycleSeconds').value,
       fetchIntervalSeconds:+$('fetchIntervalSeconds').value
     },
-    layout:Object.assign(Object.fromEntries(['showAirlineFlight','showRoute','showEta','showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr'].map(k=>[k,$(k).checked])), {noFlightsMode:$('noFlightsMode').value}),
+    layout:Object.assign(Object.fromEntries(['showLogo','showAirlineFlight','showRoute','showEta','showDistance','showProgressBar','showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr'].map(k=>[k,$(k).checked])), {noFlightsMode:$('noFlightsMode').value}),
     filters:{
       minAltitudeFt:+$('minAltitudeFt').value, maxAltitudeFt:+$('maxAltitudeFt').value,
       excludeOnGround:$('excludeOnGround').checked,
@@ -588,51 +569,6 @@ async function save(){
   const res = await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collect())});
   const j = await res.json();
   toast(j.ok ? 'Saved ✓' : ('Error: '+(j.error||'failed')));
-}
-
-async function checkFirmware(){
-  const el = $('fwState');
-  el.textContent = 'Checking…';
-  try{
-    const j = await (await fetch('/api/firmware')).json();
-    if(!j.ok){ el.innerHTML = `Running <b>${esc(j.running)}</b>. ${esc(j.error||'no update available')}`; return; }
-    el.innerHTML = j.differs
-      ? `Running <b>${esc(j.running)}</b> — server offers <b>${esc(j.available)}</b> (${Math.round(j.size/1024)}KB).`
-      : `Running <b>${esc(j.running)}</b> — already the version the server offers.`;
-  }catch(e){ el.textContent = 'Could not reach the device.'; }
-}
-
-async function installFirmware(){
-  if(!confirm('Download, verify and install the firmware from your server? The wall reboots if it passes.')) return;
-  const el = $('fwState');
-  try{
-    const j = await (await fetch('/api/firmware',{method:'POST'})).json();
-    if(!j.ok){ el.innerHTML = 'Update refused: '+esc(j.error||'unknown'); return; }
-    // The device answers BEFORE downloading, then reboots on success -- so a
-    // dropped connection here is the good outcome, not the bad one.
-    el.innerHTML = `Downloading and verifying <b>${esc(j.staging)}</b>. The wall reboots if the signature passes; this page will stop responding for a minute.`;
-  }catch(e){ el.textContent = 'Could not reach the device.'; }
-}
-
-async function updateUi(){
-  toast('Checking the server…');
-  try{
-    const j = await (await fetch('/api/updateui',{method:'POST'})).json();
-    if(!j.ok){ toast('Update failed: '+(j.error||'unknown')); return; }
-    // Reload only when the bytes actually changed -- a no-op reload looks like
-    // a failure to anyone watching, and the device says which happened.
-    if(j.changed){ toast('Updated ✓ reloading'); setTimeout(()=>location.reload(true), 900); }
-    else toast('Already up to date');
-  }catch(e){ toast('Could not reach the device'); }
-}
-
-async function clearUi(){
-  if(!confirm('Go back to the web page built into the firmware?')) return;
-  try{
-    const j = await (await fetch('/api/updateui',{method:'DELETE'})).json();
-    toast(j.cleared ? 'Using built-in ✓ reloading' : 'Already using the built-in page');
-    if(j.cleared) setTimeout(()=>location.reload(true), 900);
-  }catch(e){ toast('Could not reach the device'); }
 }
 
 async function restart(){
@@ -723,12 +659,6 @@ async function loadStatus(){
       if(el && el.textContent === '…')
         el.innerHTML = `Running <b>${esc(s.fwVersion)}</b>.` +
           (s.fwPendingVerify ? ' <b>Awaiting validation</b> — reverts on reboot until a fetch succeeds.' : '');
-    }
-    if('uiSource' in s){
-      const el=$('uiSource');
-      if(el) el.innerHTML = s.uiSource === 'server'
-        ? `Serving the page <b>downloaded from your server</b> (${esc((s.uiSha||'').slice(0,12))}…).`
-        : 'Serving the page <b>built into the firmware</b>. Nothing downloaded yet.';
     }
     if('i2cSda' in s){ const p=$('i2cPins'); if(p) p.textContent = `SDA ${s.i2cSda} / SCL ${s.i2cScl}`; }
     if('adc1Min' in s){ const a=$('adc1Range'); if(a) a.textContent = `${s.adc1Min}-${s.adc1Max}`; }

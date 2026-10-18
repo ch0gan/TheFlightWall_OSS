@@ -582,7 +582,10 @@ int16_t Hub75Display::trackedLabelX() const
  * height, which did too. If it ever does read muddy, or dim against the white
  * border, this is the knob.
  */
-static inline uint16_t progressGreen() { return rgb565(0, 210, 90); }
+static inline uint16_t progressGreen()
+{
+    return rgb565(g_settings.progressColorR, g_settings.progressColorG, g_settings.progressColorB);
+}
 
 /**
  * The UNFILLED part of the bar, which is drawn rather than left dark.
@@ -667,8 +670,8 @@ int16_t Hub75Display::trackedProgressRow() const
 
 bool Hub75Display::hasProgressBar(const FlightInfo &f) const
 {
-    return f.pinned && renderable(f.progress_pct) && trackedProgressRow() >= 0 &&
-           _matrixWidth >= 8;
+    return f.pinned && g_settings.layout.showProgressBar && renderable(f.progress_pct) &&
+           trackedProgressRow() >= 0 && _matrixWidth >= 8;
 }
 
 // A 2px horizontal bar: grey track for the whole journey, green for the part
@@ -879,13 +882,18 @@ void Hub75Display::displayMiniCard(const FlightInfo &f)
 {
     const uint16_t color = textColor();
 
+    const DisplayLayout &L0 = g_settings.layout;
     // Logo: 32x32 box, top-left (nudged down a few px for vertical balance).
     const int16_t box = 32;
     const int16_t topY = 4;
-    drawLogoOrBadge(f, 2, topY, box, box);
+    if (L0.showLogo)
+        drawLogoOrBadge(f, 2, topY, box, box);
+    else
+        _lastDrewLogo = false;
 
-    // Three info lines to the right of the logo (airline / route / aircraft).
-    const int16_t tx = 2 + box + 4; // ~38
+    // Three info lines to the right of the logo (airline / route / aircraft); they use
+    // the full width when the logo is hidden.
+    const int16_t tx = L0.showLogo ? (int16_t)(2 + box + 4) : (int16_t)2; // ~38
     const int topCols = (_matrixWidth - tx - 1) / 6;
 
     // The TRACKED label shares the first line's row, so on a tracked card the
@@ -901,8 +909,8 @@ void Hub75Display::displayMiniCard(const FlightInfo &f)
     String airline = f.airline_display_name_full.length() ? f.airline_display_name_full
                      : (f.operator_iata.length() ? f.operator_iata
                         : (f.operator_icao.length() ? f.operator_icao : f.operator_code));
-    String route = iataRoute(f);
-    String type = f.aircraft_code;
+    String route = L0.showRoute ? iataRoute(f) : String();
+    String type = L0.showAircraft ? f.aircraft_code : String();
     airline = airlineNameOverride(f.operator_icao, airline);
     if (!airline.length())
         airline = f.ident.length() ? f.ident : String("?");
@@ -911,19 +919,19 @@ void Hub75Display::displayMiniCard(const FlightInfo &f)
     if (_lastDrewLogo)
         airline = stripAirlineWords(airline);
 
-    // "Dist" labels the center distance on the row below it, right-aligned to it.
+    // "Dst" labels the center distance on the row below it, right-aligned to it.
     // Not on tracked cards: TRACKED owns that corner.
-    const String dist = miniDistMi(f.distance_km);
+    const String dist = g_settings.layout.showDistance ? miniDistMi(f.distance_km) : String();
     const bool showDist = dist.length() && (int)(route.length() + 1 + dist.length()) <= topCols;
     int topColsAirlineFit = topColsAirline;
     if (showDist && labelX < 0)
     {
-        const int16_t labelXDist = (int16_t)(_matrixWidth - 4 * 6);
+        const int16_t labelXDist = (int16_t)(_matrixWidth - 3 * 6);
         topColsAirlineFit = (labelXDist - 2 - tx) / 6;
-        drawTextLine(labelXDist, topY, String("Dist"), color);
+        drawTextLine(labelXDist, topY, String("Dst"), color);
     }
 
-    if (topColsAirlineFit > 0)
+    if (topColsAirlineFit > 0 && L0.showAirlineFlight)
         drawTextLine(tx, topY, truncateToColumns(airline, topColsAirlineFit), color);
     if (route.length())
         drawTextLine(tx, topY + 11, truncateToColumns(route, topCols), color);
@@ -1073,7 +1081,8 @@ void Hub75Display::displayMiniCard(const FlightInfo &f)
     const double routePct = routeProgressPct(f.origin.lat, f.origin.lon,
                                              f.destination.lat, f.destination.lon,
                                              f.lat, f.lon);
-    if (!hasProgressBar(f) && std::isfinite(routePct) && trackedProgressRow() >= 0)
+    if (!hasProgressBar(f) && g_settings.layout.showProgressBar && std::isfinite(routePct) &&
+        trackedProgressRow() >= 0)
     {
         const int16_t y = trackedProgressRow();
         const int16_t w = (int16_t)(_matrixWidth - 2);
@@ -1300,6 +1309,11 @@ Hub75Display::NoFlightsFrame Hub75Display::noFlightsFrame() const
     const bool wantFact = (mode == "funfact" || mode == "clockfact");
 
     NoFlightsFrame f;
+    if (mode == "blank")
+    {
+        f.screen = NoFlightsFrame::Screen::Blank; // key stays -1: static
+        return f;
+    }
     if (!wantClock && !wantFact)
         return f; // "dots" or an unknown value -> static
 
@@ -1354,6 +1368,9 @@ void Hub75Display::displayNoFlights()
         return;
     case NoFlightsFrame::Screen::Fact:
         drawFunFactScreen(f.factIdx);
+        return;
+    case NoFlightsFrame::Screen::Blank:
+        present(); // canvas was cleared by the caller
         return;
     case NoFlightsFrame::Screen::Dots:
         break;

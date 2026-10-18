@@ -4,11 +4,11 @@ Purpose: Implementation of the on-device configuration & control web server.
 #include "core/WebConfigServer.h"
 #include "esp_heap_caps.h"
 #include "core/Settings.h"
+#include "include/web_ui_gz.h"
 #include "utils/HtmlEscape.h"
 #include "config/HardwareConfiguration.h" // board-guarded pins reported in /api/status
 #include "adapters/GeoLocator.h"
 #include "utils/ServerJson.h" // renderable()
-#include "core/AssetUpdater.h"
 #include "core/FirmwareUpdater.h"
 
 #include <LittleFS.h>
@@ -89,14 +89,6 @@ void WebConfigServer::registerRoutes()
                { handleWifiScan(); });
     _server.on("/api/restart", HTTP_POST, [this]()
                { handleRestart(); });
-    _server.on("/api/updateui", HTTP_POST, [this]()
-               { handleUpdateUi(); });
-    _server.on("/api/updateui", HTTP_DELETE, [this]()
-               { handleClearUi(); });
-    _server.on("/api/firmware", HTTP_GET, [this]()
-               { handleFirmwareCheck(); });
-    _server.on("/api/firmware", HTTP_POST, [this]()
-               { handleFirmwareApply(); });
     _server.on("/setup", HTTP_GET, [this]()
                { handleSetupGet(); });
     _server.on("/setup", HTTP_POST, [this]()
@@ -111,41 +103,14 @@ void WebConfigServer::handleRoot()
     // a normal server: loop() is single-threaded and blocks on the flight fetch, so the
     // page can only stream during the gaps — fewer bytes is directly less time stuck.
     // tools/gzip_web_assets.py regenerates the .gz on every build, so it cannot go
-    // stale; the uncompressed fallback below covers an FS image built without it.
-    // Do NOT sendHeader("Content-Encoding") here. streamFile() -> _streamFileCore()
-    // already adds it when the FILE NAME ends in .gz (WebServer.cpp:525). Setting it
-    // manually as well emits the header twice, which per HTTP means the body was
-    // gzipped TWICE — the browser decodes once, tries again, fails, and renders
-    // nothing. The content type stays text/html: that is what the decoded body is,
-    // and it is also what triggers the automatic header.
-    // The DOWNLOADED page first, the built-in one as the fallback.
-    //
-    // That ordering is the whole feature: a UI change ships by fetching a file
-    // rather than by reflashing a 10MB filesystem image and wiping settings.
-    // The built-in copy is never overwritten, so a device that has never
-    // reached the server, or whose download failed its hash check, still
-    // serves a working page -- which matters because this page is how someone
-    // fixes a misbehaving device.
-    File f = LittleFS.open(AssetUpdater::kUiCachePath, "r");
-    if (!f)
-        f = LittleFS.open("/index.html.gz", "r");
-    if (f)
-    {
-        _server.streamFile(f, "text/html");
-        f.close();
-        return;
-    }
-
-    f = LittleFS.open("/index.html", "r");
-    if (!f)
-    {
-        _server.send(200, "text/html",
-                     "<h1>FlightWall</h1><p>UI asset missing. Upload the LittleFS "
-                     "filesystem image (index.html) and reboot.</p>");
-        return;
-    }
-    _server.streamFile(f, "text/html");
-    f.close();
+    // stale.
+    // The Content-Encoding header is set by hand only for the embedded copy below;
+    // streamFile() already adds it for a *.gz file, and setting it there as well
+    // would send it twice (browser decodes once, fails the second time).
+    // The page compiled into this firmware is the only one served: it always matches
+    // the running code, and nothing can replace it at runtime.
+    _server.sendHeader("Content-Encoding", "gzip");
+    _server.send_P(200, "text/html", (PGM_P)kWebUiGz, kWebUiGzLen);
 }
 
 void WebConfigServer::handleGetSettings()
@@ -172,86 +137,6 @@ void WebConfigServer::handlePostSettings()
     _settingsChanged = true;
     String resp = String("{\"ok\":") + (saved ? "true" : "false") + "}";
     _server.send(saved ? 200 : 500, "application/json", resp);
-}
-
-void WebConfigServer::handleUpdateUi()
-{
-    // Synchronous, inside the request that asked for it. The page is ~12KB and
-    // this device serves one request per loop() anyway, so the browser waiting
-    // a second is both honest and simpler than a job queue -- and the caller
-    // gets the actual outcome rather than "started".
-    const AssetUpdater::FetchResult r = AssetUpdater::updateUi(g_settings.serverUrl);
-    JsonDocument doc;
-    doc["ok"] = r.ok;
-    doc["changed"] = r.changed;
-    if (!r.ok)
-        doc["error"] = r.error;
-    doc["sha"] = AssetUpdater::cachedUiSha();
-    String out;
-    serializeJson(doc, out);
-    _server.send(r.ok ? 200 : 502, "application/json", out);
-}
-
-void WebConfigServer::handleClearUi()
-{
-    // The escape hatch for a download that passed its hash and is still bad:
-    // drop the cache and the built-in page is served again on the next load.
-    const bool had = AssetUpdater::servingCachedUi();
-    AssetUpdater::clearCachedUi();
-    String out = String("{\"ok\":true,\"cleared\":") + (had ? "true" : "false") + "}";
-    _server.send(200, "application/json", out);
-}
-
-void WebConfigServer::handleFirmwareCheck()
-{
-    const FirmwareUpdater::Available a = FirmwareUpdater::check(g_settings.serverUrl);
-    JsonDocument doc;
-    doc["ok"] = a.ok;
-    doc["running"] = FirmwareUpdater::runningVersion();
-    if (a.ok)
-    {
-        doc["available"] = a.version;
-        doc["size"] = a.size;
-        // The device decides by comparing strings, not by ordering them: these
-        // are git revisions, which have no order. "different" is the only
-        // question that can honestly be asked, and downgrading is a legitimate
-        // answer to a bad release.
-        doc["differs"] = (a.version != FirmwareUpdater::runningVersion());
-    }
-    else
-    {
-        doc["error"] = a.error;
-    }
-    String out;
-    serializeJson(doc, out);
-    _server.send(a.ok ? 200 : 502, "application/json", out);
-}
-
-void WebConfigServer::handleFirmwareApply()
-{
-    const FirmwareUpdater::Available a = FirmwareUpdater::check(g_settings.serverUrl);
-    if (!a.ok)
-    {
-        _server.send(502, "application/json",
-                     String("{\"ok\":false,\"error\":\"") + a.error + "\"}");
-        return;
-    }
-
-    // Answer BEFORE downloading. A successful apply ends in ESP.restart(), so
-    // the browser would otherwise be waiting on a connection the device is
-    // about to drop -- and would show a network error for the one outcome that
-    // actually worked.
-    _server.send(200, "application/json",
-                 String("{\"ok\":true,\"staging\":\"") + a.version +
-                     "\",\"note\":\"downloading and verifying; the device reboots if it passes\"}");
-    _server.client().flush();
-    delay(50);
-
-    const FirmwareUpdater::ApplyResult r = FirmwareUpdater::apply(g_settings.serverUrl, a);
-    // Only reached on FAILURE -- success rebooted. Nothing to reply to now, so
-    // the serial log is the record.
-    Serial.printf("[ota] update failed: %s\n", r.error.c_str());
-    setLastNote(String("update failed: ") + r.error);
 }
 
 void WebConfigServer::handleGetStatus()
@@ -313,8 +198,6 @@ void WebConfigServer::handleGetStatus()
     // True only in the window between an OTA reboot and the device proving it
     // works. Visible so a rollback is explicable rather than mysterious.
     doc["fwPendingVerify"] = FirmwareUpdater::awaitingValidation();
-    doc["uiSource"] = AssetUpdater::servingCachedUi() ? "server" : "builtin";
-    doc["uiSha"] = AssetUpdater::cachedUiSha();
     doc["panelBrightness"] = _panelBrightness;
     doc["panelOff"] = _panelOff;
     doc["manualBrightness"] = _manualBrightness;

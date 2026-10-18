@@ -149,10 +149,6 @@ private:
     void handleRoot();
     void handleSetupPage(const char *banner);
     void appendScanList(String &html);
-    void handleUpdateUi();
-    void handleClearUi();
-    void handleFirmwareCheck();
-    void handleFirmwareApply();
     void handleSetupGet();
     void handleSetupPost();
     void handleNotFound();

@@ -32,7 +32,6 @@ Run loop:
 #include "core/Settings.h"
 #include "core/AssetUpdater.h"
 #include "core/FirmwareUpdater.h"
-#include "core/ControlClient.h"
 #include "core/HttpJson.h"
 #include "esp_heap_caps.h"
 #include "esp_task_wdt.h"
@@ -95,9 +94,6 @@ static unsigned long g_apSinceMs = 0;
 // zeroed the moment there are no credentials -- exactly the case this runs in.
 static unsigned long g_apStartedMs = 0;
 static bool g_apDmaStopped = false;
-// Set when a remote command changed settings; consumed by the same block that
-// handles a LAN save, so remote and local edits cannot diverge in behaviour.
-static bool g_controlSettingsChanged = false;
 // How long the CURRENT lit period lasts. Starts at the 30s opener and becomes a
 // full minute for every later one; see the duty-cycle block in loop().
 static unsigned long g_apPanelLitMs = 0;
@@ -215,8 +211,6 @@ static bool beginWifiSta();
 static bool awaitWifiSta();
 /** Defined below; pulls any logo tile this cycle's flights need. */
 static void fetchMissingLogos();
-/** Defined below; reports to the server and applies anything queued there. */
-static void controlCheckIn();
 
 /**
  * Bring the radio up and START associating. Returns false only when there is
@@ -545,13 +539,13 @@ static void handleButtons()
 
     if (e.clickB)
     {
-        static const char *kModes[] = {"dots", "clock", "funfact", "clockfact"};
+        static const char *kModes[] = {"dots", "blank", "clock", "funfact", "clockfact"};
         size_t i = 0;
-        while (i < 4 && g_settings.layout.noFlightsMode != kModes[i])
+        while (i < 5 && g_settings.layout.noFlightsMode != kModes[i])
             ++i;
-        if (i >= 4)
+        if (i >= 5)
             i = 0; // unknown value -> land on a known one rather than guessing
-        g_settings.layout.noFlightsMode = kModes[(i + 1) % 4];
+        g_settings.layout.noFlightsMode = kModes[(i + 1) % 5];
         markSettingsDirty();
         g_display.markFlightsUpdated();
         g_display.showToast(g_settings.layout.noFlightsMode);
@@ -701,7 +695,6 @@ static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t en
     FirmwareUpdater::markRunningImageValid();
 
     fetchMissingLogos();
-    controlCheckIn();
     // A fetch always supplies fresh data: force a recompose even if the cycled
     // index is unchanged. The 200ms re-render path deliberately does NOT do this.
     g_display.markFlightsUpdated();
@@ -748,153 +741,6 @@ static void fetchMissingLogos()
         {
             fetched++; // a failure still costs a request; do not retry in a tight loop
         }
-    }
-}
-
-// Report to the server and apply anything queued there.
-//
-// On the fetch cycle rather than a timer of its own: the device is already
-// talking to this server every cycle, so this adds one request to a
-// conversation that exists instead of inventing a second cadence. It also means
-// remote control has exactly the latency the wall already runs at -- a change
-// lands within one fetch interval, which is the honest cost of never opening an
-// inbound port.
-//
-// Silent when unconfigured: no token, no request.
-static void controlCheckIn()
-{
-    if (g_settings.controlToken.length() == 0 || g_settings.serverUrl.length() == 0)
-        return;
-
-    // What the wall reports about itself. Deliberately the same values
-    // /api/status serves, so the remote page and the LAN page describe the
-    // device identically rather than approximately.
-    JsonDocument doc;
-    doc["fwVersion"] = FirmwareUpdater::runningVersion();
-    doc["ip"] = WiFi.localIP().toString();
-    doc["rssi"] = WiFi.RSSI();
-    doc["flightCount"] = (int)g_lastFlights.size();
-    doc["note"] = g_web.lastNote();
-    doc["brightness"] = g_appliedBrightness;
-    doc["panelOff"] = g_panelOff;
-    doc["mode"] = (g_settings.mode == TrackingMode::Flights) ? "flights" : "area";
-    doc["uptimeS"] = (uint32_t)(millis() / 1000);
-    // Same string /api/status serves, per this block's own rule -- and the
-    // reason it exists is that the remote page is the ONLY channel to a
-    // wall-mounted board with no cable in it.
-    doc["otaError"] = g_web.lastOtaError();
-    doc["resetReason"] = resetReasonText();
-    // Which page is being served and which source actually answered -- the
-    // two questions ("I changed the UI and nothing happened", "it says server
-    // but shows no routes") that the remote page could not answer before.
-    doc["uiSource"] = AssetUpdater::servingCachedUi() ? "server" : "builtin";
-    doc["uiSha"] = AssetUpdater::cachedUiSha();
-    doc["activeSource"] = g_web.activeSource();
-    doc["sourceFallback"] = g_web.sourceFallback();
-    doc["serverStale"] = g_web.serverStale();
-    doc["lightLevel"] = g_web.lightLevel();
-    doc["lightDark"] = g_web.lightDark();
-
-    // The device's own settings, redacted exactly as /api/settings redacts them.
-    //
-    // Without this the remote page has no idea what the wall is currently set
-    // to, so its form starts empty -- and an untouched checkbox then reads as
-    // "set this to false" rather than "leave it alone". Queueing one filter
-    // change would silently clear two others. A control page has to show the
-    // real state before it can safely offer to change it.
-    JsonDocument settingsDoc;
-    if (deserializeJson(settingsDoc, g_settings.toJsonPublic()) == DeserializationError::Ok)
-        doc["settings"] = settingsDoc;
-
-    String statusJson;
-    serializeJson(doc, statusJson);
-
-    const ControlClient::Outcome o =
-        ControlClient::checkIn(g_settings.serverUrl, g_settings.controlToken, statusJson);
-
-    if (o.error.length())
-    {
-        // One line, not a note on /api/status: a control server being briefly
-        // unreachable must not look like the flight fetch failing, which is the
-        // field a person actually reads to judge whether the wall is working.
-        Serial.printf("[control] check-in failed: %s\n", o.error.c_str());
-        return;
-    }
-
-    if (o.settingsChanged)
-        g_controlSettingsChanged = true;
-
-    // Clear before update: a batch that says "back to built-in, then fetch
-    // again" is a re-download, which is the only reading of that pair that
-    // does anything.
-    if (o.clearUi)
-    {
-        // The LAN page's "Use built-in" button, from afar: the escape hatch
-        // for a downloaded page that is valid, current, and bad.
-        const bool had = AssetUpdater::servingCachedUi();
-        AssetUpdater::clearCachedUi();
-        Serial.printf("[control] ui cache %s\n",
-                      had ? "cleared; serving the built-in page" : "was already the built-in page");
-    }
-    // Updates before restart, and restart last: a batch containing both should
-    // do the work and THEN reboot, not reboot away from it.
-    if (o.updateUi)
-    {
-        const AssetUpdater::FetchResult r = AssetUpdater::updateUi(g_settings.serverUrl);
-        Serial.printf("[control] ui update: %s\n", r.ok ? (r.changed ? "updated" : "already current") : r.error.c_str());
-    }
-    if (o.updateFirmware)
-    {
-        const FirmwareUpdater::Available a = FirmwareUpdater::check(g_settings.serverUrl);
-        if (!a.ok)
-        {
-            g_web.setLastOtaError(a.error);
-            Serial.printf("[control] firmware check failed: %s\n", a.error.c_str());
-        }
-        else if (a.version == FirmwareUpdater::runningVersion())
-            Serial.println("[control] firmware already current");
-        else
-        {
-            // PANEL DARK FOR THE DOWNLOAD. Not a nicety -- it is what makes an
-            // over-the-air update possible at all on this hardware.
-            //
-            // MEASURED, 2026-08-25: two OTA attempts failed with
-            // `download failed (-11)` -- HTTPC_ERROR_READ_TIMEOUT -- against
-            // the 30s budget setTimeout already allows. The server served the
-            // full 1213056 bytes with a 200 both times, so nothing was wrong
-            // with the image, the signature or the flash: the connection
-            // simply stalled for over half a minute mid-stream.
-            //
-            // A 1-per-second ping in the same window read 4% loss, which is
-            // why this looked survivable and was not. The ping barely loads
-            // the radio; a 1.2MB stream saturates it, and THAT is when the
-            // panel's I2S DMA starves it -- the same mechanism §1 of HANDOFF
-            // documents, and the same one AP setup mode already works around
-            // ten lines of Serial output away ("panel lit for a minute; wifi
-            // will struggle until it is dark again").
-            //
-            // stopOutput() halts the DMA, not the brightness setting, so it
-            // does NOT reach decideIdle() -- that reads effectiveBrightness.
-            // Suppressing fetches here would be self-defeating, since the
-            // check-in loop is what delivers the update in the first place.
-            Serial.println("[ota] panel dark; radio has the bus for the download");
-            g_display.stopOutput();
-
-            // Reboots on success, so nothing after this runs.
-            const FirmwareUpdater::ApplyResult r = FirmwareUpdater::apply(g_settings.serverUrl, a);
-
-            // Failure only. The panel must come back, or a failed update is
-            // indistinguishable from a dead wall.
-            g_display.startOutput();
-            g_web.setLastOtaError(r.error);
-            Serial.printf("[control] firmware update failed: %s\n", r.error.c_str());
-        }
-    }
-    if (o.restart)
-    {
-        Serial.println("[control] restarting on request");
-        delay(200);
-        ESP.restart();
     }
 }
 
@@ -1064,7 +910,7 @@ void setup()
     {
         Serial.print("WiFi connected: ");
         Serial.println(WiFi.localIP());
-        g_display.displayMessage(String("WiFi OK ") + WiFi.localIP().toString());
+        g_display.displayMessage(String("WiFi OK\n") + WiFi.localIP().toString());
         delay(2000);
         // Advertise http://flightwall.local so the UI is reachable without the IP.
         if (MDNS.begin(kMdnsHostname))
@@ -1155,9 +1001,7 @@ void loop()
     // pass: short-circuiting would leave the console's set while the web's was
     // true, so a console change made in the same pass as a web change would be
     // silently swallowed until the next unrelated web save.
-    const bool controlChanged = g_controlSettingsChanged;
-    g_controlSettingsChanged = false;
-    if (g_web.consumeSettingsChanged() | g_console.consumeSettingsChanged() | controlChanged)
+    if (g_web.consumeSettingsChanged() | g_console.consumeSettingsChanged())
     {
         // Someone is actively provisioning: restart the AP retry window below.
         // Deliberately keyed on a SETTINGS WRITE rather than on
