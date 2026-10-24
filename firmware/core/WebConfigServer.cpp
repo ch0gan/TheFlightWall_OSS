@@ -6,6 +6,7 @@ Purpose: Implementation of the on-device configuration & control web server.
 #include "core/Settings.h"
 #include "include/web_ui_gz.h"
 #include "utils/HtmlEscape.h"
+#include "utils/AirlineNames.h"
 #include "config/HardwareConfiguration.h" // board-guarded pins reported in /api/status
 #include "adapters/GeoLocator.h"
 #include "utils/ServerJson.h" // renderable()
@@ -86,6 +87,8 @@ void WebConfigServer::registerRoutes()
                { handleGetFlights(); });
     _server.on("/api/logo", HTTP_GET, [this]()
                { handleGetLogo(); });
+    _server.on("/api/logos", HTTP_GET, [this]()
+               { handleGetLogos(); });
     _server.on("/api/geolocate", HTTP_GET, [this]()
                { handleGeolocate(); });
     _server.on("/api/wifiscan", HTTP_GET, [this]()
@@ -366,6 +369,9 @@ String WebConfigServer::buildFlightsJson() const
                            : (f.operator_iata.length() ? f.operator_iata
                               : (f.operator_icao.length() ? f.operator_icao : f.operator_code));
             o["aircraft"] = f.aircraft_code;
+            o["aircraftManufacturer"] = f.aircraft_manufacturer;
+            o["aircraftModel"] = f.aircraft_model;
+            o["aircraftClass"] = f.aircraft_icon_class;
             o["pinned"] = f.pinned;
             // The code the ignore list wants, separately from the display
             // name above, so the page can offer "ignore EJA" beside a flight
@@ -450,7 +456,7 @@ void WebConfigServer::handleGetLogo()
 
     const String kind = _server.arg("kind");
     const bool cargo = _server.arg("cargo") == "1";
-    String candidates[3];
+    String candidates[4];
     size_t candidateCount = 0;
     if (kind == "heli")
         candidates[candidateCount++] = "_HELI";
@@ -460,6 +466,8 @@ void WebConfigServer::handleGetLogo()
         candidates[candidateCount++] = operatorCode;
     if (cargo)
         candidates[candidateCount++] = "_CARGO";
+    if (kind == "business" || kind == "light")
+        candidates[candidateCount++] = "_PRIVATE";
 
     for (size_t i = 0; i < candidateCount; ++i)
     {
@@ -492,6 +500,77 @@ void WebConfigServer::handleGetLogo()
     }
 
     _server.send(404, "text/plain", "logo not found");
+}
+
+void WebConfigServer::handleGetLogos()
+{
+    File directory = LittleFS.open("/logos");
+    if (!directory || !directory.isDirectory())
+    {
+        _server.send(500, "application/json", "[]");
+        return;
+    }
+
+    JsonDocument doc;
+    JsonArray logos = doc.to<JsonArray>();
+    File entry = directory.openNextFile();
+    while (entry)
+    {
+        String filename = entry.name();
+        const int slash = filename.lastIndexOf('/');
+        if (slash >= 0)
+            filename = filename.substring(slash + 1);
+
+        if (filename.endsWith(".rgb565") && filename.length() > 7)
+        {
+            const String code = filename.substring(0, filename.length() - 7);
+            bool validCode = code.length() <= 16;
+            for (size_t i = 0; validCode && i < code.length(); ++i)
+            {
+                const char c = code[i];
+                validCode = (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+            }
+
+            uint8_t header[4];
+            const size_t fileSize = entry.size();
+            if (validCode && fileSize >= sizeof(header) &&
+                entry.read(header, sizeof(header)) == sizeof(header))
+            {
+                const uint16_t width = header[0] | (header[1] << 8);
+                const uint16_t height = header[2] | (header[3] << 8);
+                const size_t expectedSize = sizeof(header) + static_cast<size_t>(width) * height * 2;
+                if (width > 0 && height > 0 && width <= 64 && height <= 64 && fileSize == expectedSize)
+                {
+                    const char *knownName = airlineNameForIcao(code.c_str());
+                    JsonObject logo = logos.add<JsonObject>();
+                    logo["code"] = code;
+                    logo["name"] = knownName ? knownName : code;
+                    if (code == "_HELI")
+                    {
+                        logo["name"] = "Helicopter";
+                        logo["kind"] = "heli";
+                    }
+                    else if (code == "_PRIVATE")
+                    {
+                        logo["name"] = "Private aircraft";
+                        logo["kind"] = "private";
+                    }
+                    else if (code == "_CARGO")
+                    {
+                        logo["name"] = "Cargo aircraft";
+                        logo["kind"] = "cargo";
+                    }
+                }
+            }
+        }
+        entry.close();
+        entry = directory.openNextFile();
+    }
+    directory.close();
+
+    String out;
+    serializeJson(doc, out);
+    _server.send(200, "application/json", out);
 }
 
 void WebConfigServer::handleGeolocate()

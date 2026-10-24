@@ -469,6 +469,9 @@ void Hub75Display::drawLogoOrBadge(const FlightInfo &f, int16_t x, int16_t y, in
         tile = tileFor(f.operator_icao);
     if ((!tile || tile->w == 0) && f.is_cargo)
         tile = tileFor("_CARGO");
+    if ((!tile || tile->w == 0) &&
+        (f.aircraft_icon_class == "business" || f.aircraft_icon_class == "light"))
+        tile = tileFor("_PRIVATE");
 
     const bool haveLogo = (tile && tile->w != 0);
     _lastDrewLogo = haveLogo;

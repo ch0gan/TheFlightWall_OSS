@@ -226,6 +226,12 @@ bool FlightDataFetcher::classifyAndFilter(FlightInfo &info, const String &callsi
     // its prefix, so it can never be is_private (this was the prior bug).
     info.is_cargo = isCargoOperator(info.operator_icao.c_str());
     info.is_private = (info.operator_icao.length() == 0) && isTailNumber(callsign.c_str());
+    const AircraftIconClass iconClass = classifyAircraftIcon(info.aircraft_code.c_str(),
+                                                               info.aircraft_manufacturer.c_str(),
+                                                               info.aircraft_model.c_str());
+    info.aircraft_icon_class = aircraftIconClassName(iconClass);
+    if (iconClass == AircraftIconClass::Helicopter)
+        info.is_helicopter = true;
 
     if (g_settings.filters.hideCargo && info.is_cargo)
         return false; // optional cargo hide
@@ -566,7 +572,11 @@ size_t FlightDataFetcher::fetchAreaModeWith(BaseStateVectorFetcher *src,
         // this exact icao24, this cycle — so this overlay actively corrects that
         // documented hazard rather than leaving it to chance.
         if (s.aircraft_type.length())
+        {
             info.aircraft_code = s.aircraft_type;
+            info.aircraft_manufacturer = "";
+            info.aircraft_model = "";
+        }
 
         // airline: fill-gap, NOT overwrite — unlike origin/dest/aircraft_type
         // above. Only step in when operator_icao specifically is empty:
@@ -611,7 +621,7 @@ size_t FlightDataFetcher::fetchAreaModeWith(BaseStateVectorFetcher *src,
             info.heading_deg = s.heading;
         if (!isnan(s.vertical_rate))
             info.vertical_rate_fpm = s.vertical_rate * kMetersPerSecToFpm;
-        info.is_helicopter = (s.category == 8); // ADS-B rotorcraft category
+        info.is_helicopter = (s.category == 8) || info.is_helicopter; // ADS-B or ICAO type
         info.distance_km = s.distance_km;
         info.lat = s.lat;
         info.lon = s.lon;
@@ -748,7 +758,11 @@ size_t FlightDataFetcher::fetchFlightsMode(std::vector<FlightInfo> &outFlights, 
         if (haveLive)
         {
             if (live.aircraft_type.length())
+            {
                 info.aircraft_code = live.aircraft_type;
+                info.aircraft_manufacturer = "";
+                info.aircraft_model = "";
+            }
             if (live.origin_iata.length())
                 info.origin.code_iata = live.origin_iata;
             if (live.dest_iata.length())
@@ -769,7 +783,7 @@ size_t FlightDataFetcher::fetchFlightsMode(std::vector<FlightInfo> &outFlights, 
                 info.heading_deg = live.heading;
             if (!isnan(live.vertical_rate))
                 info.vertical_rate_fpm = live.vertical_rate * kMetersPerSecToFpm;
-            info.is_helicopter = (live.category == 8);
+            info.is_helicopter = (live.category == 8) || info.is_helicopter;
             info.distance_km = live.distance_km;
             info.lat = live.lat;
             info.lon = live.lon;
@@ -781,6 +795,12 @@ size_t FlightDataFetcher::fetchFlightsMode(std::vector<FlightInfo> &outFlights, 
         // display tagging. This is a user-curated list, so no two-pass / hide here.
         info.is_cargo = isCargoOperator(info.operator_icao.c_str());
         info.is_private = (info.operator_icao.length() == 0) && isTailNumber(cs.c_str());
+        const AircraftIconClass iconClass = classifyAircraftIcon(info.aircraft_code.c_str(),
+                                                                   info.aircraft_manufacturer.c_str(),
+                                                                   info.aircraft_model.c_str());
+        info.aircraft_icon_class = aircraftIconClassName(iconClass);
+        if (iconClass == AircraftIconClass::Helicopter)
+            info.is_helicopter = true;
 
         if (!passesAirlineAllowList(info) || isAirlineDenied(info))
         {

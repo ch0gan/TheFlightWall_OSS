@@ -12,6 +12,7 @@ REST API:
   GET  /api/status     -> connection + device status JSON
   GET  /api/flights    -> currently displayed flights JSON (set by main loop)
   GET  /api/logo       -> RGB565 airline/generic logo tile for the web preview
+  GET  /api/logos      -> saved logo inventory with display names
   GET  /api/wifiscan   -> nearby WiFi networks JSON
   POST /api/restart    -> reboot the device
 
@@ -151,6 +152,7 @@ private:
     void handleGetStatus();
     void handleGetFlights();
     void handleGetLogo();
+    void handleGetLogos();
     String buildFlightsJson() const;
     void handleGeolocate();
     void handleWifiScan();

@@ -89,6 +89,17 @@ int main() {
     CHECK(!isGeneralAviation("QFA3"));     // shortest airline form: 3 letters + 1 digit
     CHECK(!isGeneralAviation("  BAW286 ")); // leading space tolerated, as in pass 1
 
+    // ICAO aircraft type plus enrichment labels select a generic aircraft visual.
+    CHECK(classifyAircraftIcon("C172") == AircraftIconClass::Light);
+    CHECK(classifyAircraftIcon("GLF5") == AircraftIconClass::BusinessJet);
+    CHECK(classifyAircraftIcon("R44") == AircraftIconClass::Helicopter);
+    CHECK(classifyAircraftIcon("H25B") == AircraftIconClass::BusinessJet);
+    CHECK(classifyAircraftIcon("ZZZZ") == AircraftIconClass::Unknown);
+    CHECK(classifyAircraftIcon("ZZZZ", "Cessna", "172S Skyhawk") == AircraftIconClass::Light);
+    CHECK(classifyAircraftIcon("ZZZZ", "Gulfstream Aerospace", "G550") == AircraftIconClass::BusinessJet);
+    CHECK(classifyAircraftIcon("AA5") == AircraftIconClass::Light);
+    CHECK(classifyAircraftIcon("ZZZZ", "Grumman American", "AA-5 Tiger") == AircraftIconClass::Light);
+
     if (failures == 0) { printf("ALL PASS\n"); return 0; }
     printf("%d FAILURES\n", failures);
     return 1;
