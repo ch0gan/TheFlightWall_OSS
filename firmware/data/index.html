@@ -12,7 +12,6 @@
   header h1 { font-size:17px; margin:0; letter-spacing:.5px; white-space:nowrap; }
   .wrap { max-width:760px; margin:0 auto; padding:16px; }
   .card, details.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px; }
-  .card > h2 { font-size:12px; margin:0 0 14px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; font-weight:600; }
   /* Section divider inside a card. The first section rides under the card's own h2,
      so only later ones get a rule. */
   .sec { font-size:13px; font-weight:600; color:var(--fg); margin:20px 0 6px; padding-top:16px; border-top:1px solid var(--line); }
@@ -24,6 +23,14 @@
   .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:2px; }
   .row > div { flex:1; min-width:140px; }
   .checks { display:grid; grid-template-columns:1fr 1fr; gap:8px 14px; margin-top:8px; }
+  .fr24-cadence { width:100%; border-collapse:collapse; margin-top:8px; }
+  .fr24-cadence th { padding:7px 8px; color:var(--muted); font-size:12px; font-weight:600; text-align:left; }
+  .fr24-cadence th:last-child, .fr24-cadence td:last-child { width:130px; }
+  .fr24-cadence th:nth-child(2), .fr24-cadence td:nth-child(2) { width:130px; }
+  .fr24-range-count { color:var(--muted); text-align:right; font-variant-numeric:tabular-nums; }
+  .fr24-cadence td { padding:7px 8px; border-top:1px solid var(--line); font-size:13px; }
+  .fr24-cadence .cadence-input { display:flex; align-items:center; gap:7px; }
+  .fr24-cadence input { width:90px; padding:6px 8px; }
   .check { display:flex; align-items:center; gap:8px; font-size:14px; color:var(--fg); margin-top:10px; }
   .check input { width:auto; flex:none; }
   .check label { margin:0; font-size:14px; color:var(--fg); }
@@ -33,11 +40,49 @@
   button.warn { background:var(--warn); }
   .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .pill { font-size:12px; padding:3px 9px; border-radius:999px; border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
+  #fwState { white-space:normal; overflow-wrap:anywhere; }
   .pill.on { color:#fff; background:var(--ok); border-color:var(--ok); }
   .pill.off { color:#fff; background:#ef4444; border-color:#ef4444; }
   .hide { display:none; }
-  .flight { border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-top:8px; font-size:13px; }
+  #flights { display:grid; gap:10px; }
+  .flight-pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; align-items:stretch; }
+  .flight { border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:0; font-size:13px; min-width:0; }
   .flight b { color:#fff; } .flight span { color:var(--muted); }
+  .flight-display-card { min-width:0; display:grid; place-items:center; padding:8px; border:1px solid var(--line); border-radius:8px; background:#0e1421; }
+  .logo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
+  .logo-item { display:flex; min-width:0; align-items:center; gap:10px; padding:8px; border:1px solid var(--line); border-radius:6px; background:#0e1421; }
+  .logo-preview { display:grid; width:48px; height:48px; flex:none; place-items:center; overflow:hidden; background:#000; color:var(--fg); font:12px ui-monospace,Consolas,monospace; }
+  .logo-preview canvas { display:none; width:100%; height:100%; image-rendering:pixelated; }
+  .logo-name { min-width:0; overflow-wrap:anywhere; font-size:13px; }
+  .logo-code { display:block; color:var(--muted); font:11px ui-monospace,Consolas,monospace; }
+  .panel-screen { position:relative; width:min(100%,var(--screen-max-width)); aspect-ratio:var(--panel-width) / var(--panel-height); overflow:hidden; container-type:inline-size; background:#000; color:var(--panel-text); font-family:ui-monospace,Consolas,monospace; }
+  .panel-screen.tracked { box-shadow:inset 0 0 0 var(--panel-border) #fff; }
+  .panel-screen.text:not(.tracked) { box-shadow:inset 0 0 0 var(--panel-border) var(--panel-text); }
+  .panel-mark { position:relative; display:grid; place-items:center; flex:none; overflow:hidden; aspect-ratio:1; background:var(--operator-accent); color:#fff; font-size:var(--mark-font); line-height:1; font-weight:700; }
+  .panel-badge { position:relative; z-index:0; }
+  .panel-logo-image { position:absolute; z-index:1; inset:0; display:none; width:100%; height:100%; image-rendering:pixelated; }
+  .panel-text { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:clip; color:var(--panel-text); font-size:var(--pixel-font); line-height:var(--pixel-line); }
+  .panel-text.panel-eta { color:var(--panel-progress); }
+  .panel-progress { position:absolute; left:1%; right:1%; bottom:2%; height:var(--progress-height); background:#2a2a2a; }
+  .panel-progress-fill { height:100%; background:var(--panel-progress); }
+  .panel-mini-top { position:absolute; top:6.25%; left:1.5%; right:1.5%; height:var(--mini-top-height); display:flex; gap:2%; }
+  .panel-mini-mark { width:var(--mini-logo-width); height:100%; }
+  .panel-mini-copy { display:flex; min-width:0; flex:1; flex-direction:column; justify-content:space-between; overflow:hidden; }
+  .panel-mini-copy .panel-text { flex:none; }
+  .panel-mini-airline.tracked-name { flex:none; }
+  .panel-mini-route { display:flex; justify-content:space-between; gap:1%; }
+  .panel-mini-distance { flex:none; }
+  .panel-mini-label { position:absolute; top:0; right:1%; max-width:36%; overflow:hidden; background:#000; font-size:var(--small-font); line-height:1; }
+  .panel-mini-dst { position:absolute; top:0; right:2%; font-size:var(--small-font); line-height:1; }
+  .panel-mini-metric { position:absolute; left:1%; right:1%; overflow:hidden; white-space:nowrap; font-size:var(--pixel-font); line-height:var(--pixel-line); }
+  .panel-mini-row-one { top:62.5%; }
+  .panel-mini-row-two { top:81.25%; }
+  .panel-wide-mark { position:absolute; top:25%; left:1%; width:12.5%; height:50%; }
+  .panel-wide-divider { position:absolute; top:3%; bottom:3%; left:14.1%; width:var(--panel-border); background:var(--operator-accent); }
+  .panel-wide-lines { position:absolute; top:3%; right:2%; bottom:3%; left:16.4%; display:flex; flex-direction:column; justify-content:center; overflow:hidden; }
+  .panel-stack-mark { position:absolute; top:3%; left:25%; width:50%; height:auto; }
+  .panel-stack-lines { position:absolute; top:55%; right:2%; bottom:5%; left:2%; display:flex; flex-direction:column; align-items:center; justify-content:center; overflow:hidden; }
+  .panel-text-lines { position:absolute; inset:0; padding:2%; display:flex; flex-direction:column; justify-content:center; overflow:hidden; }
   .toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#1f2a40; border:1px solid var(--line); padding:10px 16px; border-radius:8px; opacity:0; transition:.2s; pointer-events:none; }
   .toast.show { opacity:1; }
   small.help { color:var(--muted); display:block; margin-top:6px; font-size:12px; line-height:1.5; }
@@ -58,6 +103,7 @@
     .row > div { min-width:0; margin-bottom:2px; }
     .checks { grid-template-columns:1fr; }
     .card, details.card { padding:14px; }
+    .flight-pair { grid-template-columns:1fr; }
   }
 </style>
 </head>
@@ -74,68 +120,15 @@
 
 <div class="wrap">
 
-  <div class="card">
-    <h2>Status</h2>
+  <div id="flights"></div>
+
+  <details class="card">
+    <summary>Status</summary>
     <div id="status" class="bar"><span class="pill">loading…</span></div>
-    <div id="flights"></div>
-  </div>
+  </details>
 
-  <div class="card">
-    <h2>Setup</h2>
-
-    <label>WiFi network (SSID)</label>
-    <input id="wifiSsid" type="text" placeholder="Your WiFi name" />
-    <label>Password</label>
-    <input id="wifiPassword" type="password" placeholder="••••••••" />
-    <div class="bar" style="margin-top:10px">
-      <button class="ghost" onclick="scanWifi()">Scan networks</button>
-    </div>
-    <div id="scanlist" class="scanlist"></div>
-    <small class="help">Changing WiFi takes effect after a restart.</small>
-
-    <div class="sec">API keys</div>
-    <label>OpenSky client ID</label>
-    <input id="openSkyClientId" type="text" />
-    <label>OpenSky client secret</label>
-    <input id="openSkyClientSecret" type="password" />
-
-    <label>Position source (Area mode)</label>
-    <select id="positionSource" onchange="toggleServerUrl()">
-      <option value="opensky">OpenSky — official, needs key above (recommended)</option>
-      <option value="fr24">Flightradar24 — unofficial, no key, routes included</option>
-      <option value="adsblol">adsb.lol — free, no key, aircraft type + registration, no route</option>
-      <option value="server">FlightWall server — routes + ETA from a server you run, falls back to adsb.lol</option>
-    </select>
-    <small class="help">Flightradar24 is an <b>unofficial scrape</b> of fr24.com for personal use only — it can break or rate-limit, and rows with a route skip the separate enrichment lookup (rows without one, mostly GA/unscheduled traffic, still use it). Best on the S3 (PSRAM). adsb.lol is a free, keyless, community-run ADS-B aggregator — no account, no ToS problem, and it carries aircraft type and registration inline, but <b>no route</b> (enrichment below still runs for that). The FlightWall server is infrastructure you deploy yourself: one HTTP call per cycle returns routes, airline names and ETA already computed, and it falls back to adsb.lol for that cycle if it can't be reached. OpenSky stays the default.</small>
-
-    <div id="serverUrlBox" class="hide">
-      <label>FlightWall server URL</label>
-      <input id="serverUrl" type="text" placeholder="https://flightwall.example.workers.dev" />
-      <small class="help">Base URL of your deployed FlightWall server, no trailing slash. Only used when the position source above is "FlightWall server".</small>
-    </div>
-
-    <label>Flight enrichment source (route · airline · aircraft)</label>
-    <select id="enrichmentSource">
-      <option value="adsbdb">adsbdb.com — free, no key (recommended)</option>
-      <option value="aeroapi">FlightAware AeroAPI — paid (needs key below)</option>
-      <option value="off">Off — callsign only</option>
-    </select>
-    <small class="help">adsbdb.com is free and needs no key. Results are cached per flight leg to minimize requests.</small>
-
-    <label>FlightAware AeroAPI key <span style="color:var(--muted)">(for AeroAPI source or backup)</span></label>
-    <input id="aeroApiKey" type="password" />
-
-    <label>Remote control token <span style="color:var(--muted)">(optional)</span></label>
-    <input id="controlToken" type="password" />
-    <small class="help">Lets you see and control this wall from your FlightWall server when you are
-      not on this network. Must match <b>CONTROL_TOKEN</b> on the server. Leave blank to keep the
-      feature off — the device then never checks in. <b>WiFi settings can never be changed remotely</b>,
-      by design: a wrong network would put the wall out of reach with no way back but a cable.</small>
-    <span class="check"><input type="checkbox" id="enrichmentFallbackToAeroApi"><label>Use AeroAPI as backup when adsbdb misses a flight (needs key)</label></span>
-  </div>
-
-  <div class="card">
-    <h2>Tracking</h2>
+  <details class="card">
+    <summary>Tracking</summary>
 
     <label>Mode</label>
     <select id="mode" onchange="toggleMode()">
@@ -147,13 +140,34 @@
       <div class="row">
         <div><label>Center latitude</label><input id="centerLat" type="number" step="0.0001" /></div>
         <div><label>Center longitude</label><input id="centerLon" type="number" step="0.0001" /></div>
-        <div><label>Radius (km)</label><input id="radiusKm" type="number" step="0.5" /></div>
+        <div><label>Radius (<span id="radiusUnitLabel">km</span>)</label><input id="radiusKm" type="number" min="0.1" step="0.1" /></div>
+        <div><label>Distance units</label><select id="distanceUnit" onchange="changeDistanceUnit()"><option value="km">Kilometers (km)</option><option value="mi">Miles (mi)</option><option value="nm">Nautical miles (nm)</option></select></div>
       </div>
       <div class="bar" style="margin-top:10px">
         <button class="ghost" type="button" onclick="geolocate()">Auto-detect my location</button>
       </div>
       <small class="help" id="geoNote">Uses your IP (approximate). Review before saving.</small>
       <span class="check"><input type="checkbox" id="autoLocateOnBoot"><label>Auto-detect location on every boot</label></span>
+    </div>
+
+    <div id="fr24CadenceBox">
+    <div class="sec">FR24 approach polling</div>
+    <div class="row">
+      <div><label>FR24 watch radius (<span class="distanceUnitLabel">km</span>)</label><input id="fr24WatchRadiusKm" type="number" min="0.1" step="0.1" value="20" /></div>
+      <div><label>Outer band edge (<span class="distanceUnitLabel">km</span>)</label><input id="fr24OuterBandKm" type="number" min="0.1" step="0.1" value="10" /></div>
+      <div><label>Inner band edge (<span class="distanceUnitLabel">km</span>)</label><input id="fr24InnerBandKm" type="number" min="0.1" step="0.1" value="5" /></div>
+    </div>
+    <table class="fr24-cadence">
+      <thead><tr><th>Nearest aircraft</th><th>Check every</th><th>Total in range</th></tr></thead>
+      <tbody>
+        <tr><td id="fr24NoAircraftRange">No aircraft within 20 km</td><td><div class="cadence-input"><input id="fr24NoAircraftIntervalSeconds" type="number" min="5" value="120" /><span>sec</span></div></td><td id="fr24NoAircraftTotal" class="fr24-range-count">—</td></tr>
+        <tr><td id="fr24OuterBandRange">10–20 km</td><td><div class="cadence-input"><input id="fr24OuterBandIntervalSeconds" type="number" min="5" value="30" /><span>sec</span></div></td><td id="fr24OuterBandTotal" class="fr24-range-count">—</td></tr>
+        <tr><td id="fr24MiddleBandRange">5–10 km</td><td><div class="cadence-input"><input id="fr24MiddleBandIntervalSeconds" type="number" min="5" value="15" /><span>sec</span></div></td><td id="fr24MiddleBandTotal" class="fr24-range-count">—</td></tr>
+        <tr><td id="fr24InnerBandRange">0–5 km</td><td><div class="cadence-input"><input id="fr24InnerBandIntervalSeconds" type="number" min="5" value="10" /><span>sec</span></div></td><td id="fr24InnerBandTotal" class="fr24-range-count">—</td></tr>
+      </tbody>
+    </table>
+    <div id="apiCallStats" class="bar" style="margin-top:8px"><span class="pill">API calls: loading…</span></div>
+    <small class="help">FR24 Area mode only. Band totals count eligible aircraft in the latest feed; the no-aircraft fallback row has no range count. Aircraft outside the display radius affect polling, not the displayed flight list.</small>
     </div>
 
     <div id="flightsBox" class="hide">
@@ -180,55 +194,15 @@
       <div id="alFindOut" class="bar" style="margin-top:6px"></div>
     </div>
     <small class="help">Hidden on every position source, and left out of the server's nearest-first cut so they cost no slots. Codes, not names: the 3-letter prefix of the callsign (NetJets flies as <b>EJA</b>123) or the 2-letter IATA code. Each flight in the Status list has an <b>ignore</b> button. A flight you are watching from the server is shown regardless.</small>
-  </div>
+  </details>
 
-  <!-- Watched flights and airline names live on the server, not the device.
-       This card calls it straight from the browser with the server page's own
-       password; the ESP32 proxies nothing. Hidden until a server URL is set. -->
-  <div id="serverCard" class="card hide">
-    <h2>FlightWall server</h2>
-    <div id="srvLock">
-      <small class="help" id="srvLockMsg"></small>
-      <label>Server page password</label>
-      <input id="srvPw" type="password" autocomplete="current-password" placeholder="flightwall123 unless it was changed" />
-      <div class="bar" style="margin-top:8px"><button type="button" onclick="srvUnlock()">Unlock</button></div>
-      <small class="help">The same password as the server's own page. Kept for this tab only.</small>
-    </div>
-    <div id="srvBody" class="hide">
-      <div class="bar" style="justify-content:space-between"><span class="pill" id="srvUrlPill"></span><button class="ghost" type="button" onclick="srvLockNow()">Lock</button></div>
-      <div class="sec">Watched flights</div>
-      <div id="trackedForm">
-        <div class="row">
-          <div><label>Flight number</label><input id="twNum" type="text" placeholder="BA181" autocapitalize="characters" autocomplete="off" /></div>
-          <div><label>Departure date</label><input id="twDate" type="date" /></div>
-          <div><label>From (optional)</label><input id="twFrom" type="text" placeholder="JFK" maxlength="3" autocapitalize="characters" /></div>
-          <div><label>To (optional)</label><input id="twTo" type="text" placeholder="LHR" maxlength="3" autocapitalize="characters" /></div>
-        </div>
-        <div class="bar" style="margin-top:8px"><button type="button" onclick="watchFlight()">Watch</button></div>
-      </div>
-      <div id="trackedBox"></div>
-      <small class="help">Followed worldwide and pinned to the top of the wall while it is in the air. The date is the one on the boarding pass, local to the departure airport. From/To settle which leg when an airline reuses the number the same day. The server's own page explains the rest.</small>
-      <div id="alNamesBox">
-        <div class="sec">Airline names</div>
-        <div id="unnamedWrap" class="hide"><small class="help">Showing on the wall with no name — click one to fill it in:</small><div id="unnamed" class="bar" style="margin:6px 0"></div></div>
-        <div class="row">
-          <div><label>Code</label><input id="alCode" type="text" placeholder="AIZ" maxlength="3" autocapitalize="characters" autocomplete="off" /></div>
-          <div><label>Shows as</label><input id="alName" type="text" placeholder="Arkia" maxlength="24" autocomplete="off" /></div>
-        </div>
-        <div class="bar" style="margin-top:8px"><button type="button" onclick="saveAirlineName()">Save name</button></div>
-        <div id="alList"></div>
-        <small class="help">A name set here beats every built-in table, on every board this server feeds. The card gives an airline 7 to 14 characters, so long names are worth shortening.</small>
-      </div>
-      <small class="help" id="srvErr" style="color:var(--warn)"></small>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Display</h2>
+  <details class="card">
+    <summary>Display</summary>
 
     <div class="row">
       <div><label>Brightness (0–255)</label><input id="brightness" type="number" min="0" max="255" /></div>
       <div><label>Text color</label><input id="textColor" type="color" /></div>
+      <div><label>Progress bar color</label><input id="progressColor" type="color" /></div>
       <div><label>Seconds per flight</label><input id="cycleSeconds" type="number" min="1" /></div>
     </div>
     <small class="help">Seconds per flight is how long each card holds the panel before the carousel moves on. How many flights it cycles through is <b>Max flights</b>, under Advanced.</small>
@@ -236,6 +210,7 @@
       <div><label>When no flights</label>
         <select id="noFlightsMode">
           <option value="dots">Dots (...)</option>
+          <option value="blank">Blank</option>
           <option value="clock">Clock</option>
           <option value="funfact">Fun fact</option>
           <option value="clockfact">Clock + fun fact</option>
@@ -245,9 +220,12 @@
 
     <div class="sec">Fields on each card</div>
     <div class="checks">
+      <span class="check"><input type="checkbox" id="showLogo"><label>Logo</label></span>
       <span class="check"><input type="checkbox" id="showAirlineFlight"><label>Airline + flight</label></span>
       <span class="check"><input type="checkbox" id="showRoute"><label>Route</label></span>
       <span class="check"><input type="checkbox" id="showEta"><label>ETA</label></span>
+      <span class="check"><input type="checkbox" id="showDistance"><label>Distance from center</label></span>
+      <span class="check"><input type="checkbox" id="showProgressBar"><label>Progress bar</label></span>
       <span class="check"><input type="checkbox" id="showAircraft"><label>Aircraft type</label></span>
       <span class="check"><input type="checkbox" id="showAltitude"><label>Altitude</label></span>
       <span class="check"><input type="checkbox" id="showSpeed"><label>Speed</label></span>
@@ -284,7 +262,44 @@
       <div><label>Night end hour (0–23)</label><input id="nightEndHour" type="number" min="0" max="23" /></div>
 
     </div>
-  </div>
+  </details>
+
+  <details class="card">
+    <summary>API</summary>
+    <div class="sec">API keys</div>
+    <label>OpenSky client ID</label>
+    <input id="openSkyClientId" type="text" />
+    <label>OpenSky client secret</label>
+    <input id="openSkyClientSecret" type="password" />
+
+    <label>Position source (Area mode)</label>
+    <select id="positionSource" onchange="toggleServerUrl();toggleFr24Cadence()">
+      <option value="opensky">OpenSky — official, needs key above (recommended)</option>
+      <option value="fr24">Flightradar24 — unofficial, no key, routes included</option>
+      <option value="adsblol">adsb.lol — free, no key, aircraft type + registration, no route</option>
+      <option value="server">FlightWall server — routes + ETA from a server you run, falls back to adsb.lol</option>
+    </select>
+    <small class="help">Flightradar24 is an <b>unofficial scrape</b> of fr24.com for personal use only — it can break or rate-limit, and rows with a route skip the separate enrichment lookup (rows without one, mostly GA/unscheduled traffic, still use it). Best on the S3 (PSRAM). adsb.lol is a free, keyless, community-run ADS-B aggregator — no account, no ToS problem, and it carries aircraft type and registration inline, but <b>no route</b> (enrichment below still runs for that). The FlightWall server is infrastructure you deploy yourself: one HTTP call per cycle returns routes, airline names and ETA already computed, and it falls back to adsb.lol for that cycle if it can't be reached. OpenSky stays the default.</small>
+
+    <div id="serverUrlBox" class="hide">
+      <label>FlightWall server URL</label>
+      <input id="serverUrl" type="text" placeholder="https://flightwall.example.workers.dev" />
+      <small class="help">Base URL of your deployed FlightWall server, no trailing slash. Only used when the position source above is "FlightWall server".</small>
+    </div>
+
+    <label>Flight enrichment source (route · airline · aircraft)</label>
+    <select id="enrichmentSource">
+      <option value="adsbdb">adsbdb.com — free, no key (recommended)</option>
+      <option value="aeroapi">FlightAware AeroAPI — paid (needs key below)</option>
+      <option value="off">Off — callsign only</option>
+    </select>
+    <small class="help">adsbdb.com is free and needs no key. Results are cached per flight leg to minimize requests.</small>
+
+    <label>FlightAware AeroAPI key <span style="color:var(--muted)">(for AeroAPI source or backup)</span></label>
+    <input id="aeroApiKey" type="password" />
+
+    <span class="check"><input type="checkbox" id="enrichmentFallbackToAeroApi"><label>Use AeroAPI as backup when adsbdb misses a flight (needs key)</label></span>
+  </details>
 
   <details class="card">
     <summary>Advanced</summary>
@@ -293,29 +308,6 @@
     <small class="help">Two momentary buttons to GND on <b><span id="btnPins">…</span></b>.<br>
       <b>A:</b> click = panel off/on · hold = brighter &nbsp;|&nbsp; <b>B:</b> click = cycle no-flights mode · hold = dimmer<br>
       A held brightness overrides the schedule and the light sensor until the next automatic change.</small>
-
-    <div class="sec">Web UI</div>
-    <small class="help" id="uiSource">…</small>
-    <div class="bar" style="margin-top:8px">
-      <button class="ghost" type="button" onclick="updateUi()">Update from server</button>
-      <button class="ghost" type="button" onclick="clearUi()">Use built-in</button>
-    </div>
-    <small class="help">This page can be downloaded from your FlightWall server instead of being
-      reflashed, so a UI change no longer costs a cable and your settings. The built-in copy is never
-      overwritten — it is what you get if the download fails its checksum or the server is unreachable,
-      and <b>Use built-in</b> goes back to it at any time.</small>
-
-    <div class="sec">Firmware</div>
-    <small class="help" id="fwState">…</small>
-    <div class="bar" style="margin-top:8px">
-      <button class="ghost" type="button" onclick="checkFirmware()">Check for update</button>
-      <button class="warn" type="button" onclick="installFirmware()">Install update</button>
-    </div>
-    <small class="help">Updates are <b>signed</b>. The device downloads the image into its spare
-      partition and checks the signature against a key built into the firmware before anything is made
-      bootable — so a server that has been tampered with, or a network that intercepts the download,
-      cannot make the wall run code you did not sign. If the new image boots but cannot reach the
-      network, the bootloader puts the old one back by itself.</small>
 
     <div class="sec">Flight list</div>
     <div class="row">
@@ -383,6 +375,81 @@
     <small class="help">Start with: uncheck Clock phase. Still bad? Try driver = FM6126A. These apply after a restart. A 74HCT245 level shifter is the robust hardware fix.</small>
   </details>
 
+  <details class="card">
+    <summary>WiFi</summary>
+
+    <label>WiFi network (SSID)</label>
+    <input id="wifiSsid" type="text" placeholder="Your WiFi name" />
+    <label>Password</label>
+    <input id="wifiPassword" type="password" placeholder="••••••••" />
+    <div class="bar" style="margin-top:10px">
+      <button class="ghost" onclick="scanWifi()">Scan networks</button>
+    </div>
+    <div id="scanlist" class="scanlist"></div>
+    <small class="help">Changing WiFi takes effect after a restart.</small>
+  </details>
+
+  <details class="card">
+    <summary>Firmware Update</summary>
+    <label for="firmwareFile">Firmware binary (.bin)</label>
+    <input id="firmwareFile" type="file" accept=".bin,application/octet-stream" />
+    <label for="firmwareSignature">Matching signature (.sig)</label>
+    <input id="firmwareSignature" type="file" accept=".sig,application/octet-stream" />
+    <label for="firmwareTargetFile">Build target (.txt)</label>
+    <input id="firmwareTargetFile" type="file" accept=".txt,text/plain" />
+    <small class="help">Select the matching files generated by the signing tool. This device accepts target <b id="firmwareTarget">…</b>. A successful upload restarts the device.</small>
+    <div class="bar" style="margin-top:10px">
+      <button id="firmwareUploadButton" onclick="uploadFirmware()">Verify and upload</button>
+      <span id="firmwareUploadState" class="pill" aria-live="polite"></span>
+    </div>
+  </details>
+
+  <!-- Watched flights and airline names live on the server, not the device.
+       This card calls it straight from the browser with the server page's own
+       password; the ESP32 proxies nothing. Hidden until a server URL is set. -->
+  <details id="serverCard" class="card hide">
+    <summary>Flightwall Server</summary>
+    <div id="srvLock">
+      <small class="help" id="srvLockMsg"></small>
+      <label>Server page password</label>
+      <input id="srvPw" type="password" autocomplete="current-password" placeholder="flightwall123 unless it was changed" />
+      <div class="bar" style="margin-top:8px"><button type="button" onclick="srvUnlock()">Unlock</button></div>
+      <small class="help">The same password as the server's own page. Kept for this tab only.</small>
+    </div>
+    <div id="srvBody" class="hide">
+      <div class="bar" style="justify-content:space-between"><span class="pill" id="srvUrlPill"></span><button class="ghost" type="button" onclick="srvLockNow()">Lock</button></div>
+      <div class="sec">Watched flights</div>
+      <div id="trackedForm">
+        <div class="row">
+          <div><label>Flight number</label><input id="twNum" type="text" placeholder="BA181" autocapitalize="characters" autocomplete="off" /></div>
+          <div><label>Departure date</label><input id="twDate" type="date" /></div>
+          <div><label>From (optional)</label><input id="twFrom" type="text" placeholder="JFK" maxlength="3" autocapitalize="characters" /></div>
+          <div><label>To (optional)</label><input id="twTo" type="text" placeholder="LHR" maxlength="3" autocapitalize="characters" /></div>
+        </div>
+        <div class="bar" style="margin-top:8px"><button type="button" onclick="watchFlight()">Watch</button></div>
+      </div>
+      <div id="trackedBox"></div>
+      <small class="help">Followed worldwide and pinned to the top of the wall while it is in the air. The date is the one on the boarding pass, local to the departure airport. From/To settle which leg when an airline reuses the number the same day. The server's own page explains the rest.</small>
+      <div id="alNamesBox">
+        <div class="sec">Airline names</div>
+        <div id="unnamedWrap" class="hide"><small class="help">Showing on the wall with no name — click one to fill it in:</small><div id="unnamed" class="bar" style="margin:6px 0"></div></div>
+        <div class="row">
+          <div><label>Code</label><input id="alCode" type="text" placeholder="AIZ" maxlength="3" autocapitalize="characters" autocomplete="off" /></div>
+          <div><label>Shows as</label><input id="alName" type="text" placeholder="Arkia" maxlength="24" autocomplete="off" /></div>
+        </div>
+        <div class="bar" style="margin-top:8px"><button type="button" onclick="saveAirlineName()">Save name</button></div>
+        <div id="alList"></div>
+        <small class="help">A name set here beats every built-in table, on every board this server feeds. The card gives an airline 7 to 14 characters, so long names are worth shortening.</small>
+      </div>
+      <small class="help" id="srvErr" style="color:var(--warn)"></small>
+    </div>
+  </details>
+
+  <details id="logosSection" class="card">
+    <summary>Logos</summary>
+    <div id="logoGrid" class="logo-grid"></div>
+  </details>
+
 </div>
 
 <div id="toast" class="toast"></div>
@@ -429,6 +496,340 @@ function selectValue(id,value,label){
   opt.value=v; opt.textContent=(label||'Custom')+' — '+v;
   el.appendChild(opt); el.value=v;
 }
+const previewControlIds = [
+  'showLogo','showAirlineFlight','showRoute','showEta','showDistance','showProgressBar',
+  'showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr',
+  'textColor','progressColor'
+];
+let latestFlights = [];
+let settingsLoaded = false;
+const panelLogoCache = new Map();
+
+function panelGeometry(){
+  return { panelWidth:128, panelHeight:64, layout:'mini' };
+}
+
+function previewEnabled(id){ return !settingsLoaded || $(id).checked; }
+
+function panelAccent(code){
+  let hash=2166136261;
+  for(let i=0;i<code.length;i++) hash=Math.imul(hash^code.charCodeAt(i),16777619)>>>0;
+  const c=[70+(hash&127),70+((hash>>>8)&127),70+((hash>>>16)&127)];
+  return '#'+c.map(n=>n.toString(16).padStart(2,'0')).join('');
+}
+
+function panelTruncate(text,columns){
+  text=String(text||'');
+  if(text.length<=columns) return text;
+  if(columns<=3) return text.slice(0,Math.max(0,columns));
+  return text.slice(0,columns-3)+'...';
+}
+
+function panelMetric(value){ return value!==undefined && value!==null && Number.isFinite(Number(value)); }
+let currentDistanceUnit='km';
+function distanceUnitFactor(unit){ return unit==='mi'?0.6213711922:unit==='nm'?0.5399568035:1; }
+function distanceUnitSuffix(){ return currentDistanceUnit; }
+function kmToSelectedDistance(km,unit=currentDistanceUnit){ return Number(km)*distanceUnitFactor(unit); }
+function selectedDistanceToKm(value,unit=currentDistanceUnit){ return Number(value)/distanceUnitFactor(unit); }
+function formatDistance(km,digits=1){
+  const distance=kmToSelectedDistance(km);
+  return `${Number(distance.toFixed(digits))}${distanceUnitSuffix()}`;
+}
+function updateDistanceUnitLabels(){
+  $('radiusUnitLabel').textContent=currentDistanceUnit;
+  document.querySelectorAll('.distanceUnitLabel').forEach(label=>{ label.textContent=currentDistanceUnit; });
+  updateFr24CadenceRanges();
+}
+function changeDistanceUnit(){
+  const nextUnit=$('distanceUnit').value;
+  if(nextUnit===currentDistanceUnit) return;
+  for(const id of ['radiusKm','fr24WatchRadiusKm','fr24OuterBandKm','fr24InnerBandKm']){
+    const input=$(id),value=Number(input.value);
+    if(Number.isFinite(value)) input.value=Number(kmToSelectedDistance(selectedDistanceToKm(value,currentDistanceUnit),nextUnit).toFixed(2));
+  }
+  currentDistanceUnit=nextUnit;
+  updateDistanceUnitLabels();
+  renderFlightCards(latestFlights);
+}
+function panelAltitude(ft,mini=false,unit=true){
+  if(!panelMetric(ft)) return '';
+  ft=Number(ft);
+  if(mini) return ft>=1000?(ft/1000).toFixed(1)+(unit?'kft':'k'):Math.round(ft)+(unit?'ft':'');
+  return ft>=18000?'FL'+Math.round((ft+50)/100):Math.round(ft)+'ft';
+}
+function panelHeading(deg){ return panelMetric(deg)?'HDG'+String(Math.round(Number(deg))%360).padStart(3,'0'):''; }
+function panelVerticalRate(fpm,mini=false){
+  if(!panelMetric(fpm)) return '';
+  fpm=Number(fpm);
+  if(Math.abs(fpm)<=2) return fpm>0?'CLB':fpm<0?'DES':'LVL';
+  const rate=mini?Math.trunc(fpm/60+(fpm>=0?0.5:-0.5)):Math.trunc(fpm+(fpm>=0?0.5:-0.5));
+  return mini?'Vr:'+rate+'ft/s':(rate>0?'+':'')+rate+'fpm';
+}
+function panelBadge(f){
+  if(f.helicopter||f.aircraftClass==='heli') return 'H';
+  if(f.private) return 'P';
+  const code=f.operatorIata||f.operatorIcao||f.operatorCode||(f.cargo?'C':'');
+  return String(code).slice(0,2).toUpperCase()||'?';
+}
+
+function panelMark(f,className){
+  const kind=f.helicopter||f.aircraftClass==='heli'?'heli':f.private?'private'
+    :f.aircraftClass==='business'?'business':f.aircraftClass==='light'?'light':f.cargo?'cargo':'';
+  const description=[f.aircraftManufacturer,f.aircraftModel].filter(Boolean).join(' ');
+  return `<div class="panel-mark ${className}" title="${esc(description||f.aircraft||'Aircraft')}"><span class="panel-badge">${esc(panelBadge(f))}</span><canvas class="panel-logo-image" aria-hidden="true" data-operator="${esc(f.operatorIcao||'')}" data-kind="${kind}" data-cargo="${f.cargo?'1':'0'}"></canvas></div>`;
+}
+
+function decodePanelLogo(buffer){
+  if(!buffer||buffer.byteLength<4) return null;
+  const header=new DataView(buffer);
+  const width=header.getUint16(0,true),height=header.getUint16(2,true);
+  if(!width||!height||width>64||height>64||buffer.byteLength!==4+width*height*2) return null;
+  const pixels=new DataView(buffer,4);
+  const rgba=new Uint8ClampedArray(width*height*4);
+  for(let i=0;i<width*height;i++){
+    const pixel=pixels.getUint16(i*2,true);
+    rgba[i*4]=Math.round(((pixel>>11)&31)*255/31);
+    rgba[i*4+1]=Math.round(((pixel>>5)&63)*255/63);
+    rgba[i*4+2]=Math.round((pixel&31)*255/31);
+    rgba[i*4+3]=255;
+  }
+  return {width,height,rgba};
+}
+
+function getPanelLogo(canvas){
+  const operator=canvas.dataset.operator||'',kind=canvas.dataset.kind||'',cargo=canvas.dataset.cargo||'0';
+  const cacheKey=`${operator}|${kind}|${cargo}`;
+  if(!panelLogoCache.has(cacheKey)){
+    const query=new URLSearchParams({operator,kind,cargo});
+    const request=fetch('/api/logo?'+query.toString())
+      .then(response=>response.ok?response.arrayBuffer():null)
+      .then(decodePanelLogo)
+      .catch(()=>null);
+    panelLogoCache.set(cacheKey,request);
+  }
+  return panelLogoCache.get(cacheKey);
+}
+
+function loadPanelLogos(){
+  document.querySelectorAll('.panel-logo-image').forEach(canvas=>{
+    getPanelLogo(canvas).then(logo=>{
+      if(!logo||!canvas.isConnected) return;
+      canvas.width=logo.width;
+      canvas.height=logo.height;
+      const context=canvas.getContext('2d');
+      if(!context) return;
+      const image=context.createImageData(logo.width,logo.height);
+      image.data.set(logo.rgba);
+      context.putImageData(image,0,0);
+      canvas.style.display='block';
+      canvas.previousElementSibling.hidden=true;
+    });
+  });
+}
+
+let logoInventoryLoaded=false;
+async function loadStoredLogo(canvas){
+  const logo=await getPanelLogo(canvas);
+  if(!logo||!canvas.isConnected) return;
+  canvas.width=logo.width;
+  canvas.height=logo.height;
+  const context=canvas.getContext('2d');
+  if(!context) return;
+  const image=context.createImageData(logo.width,logo.height);
+  image.data.set(logo.rgba);
+  context.putImageData(image,0,0);
+  canvas.style.display='block';
+  canvas.previousElementSibling.hidden=true;
+}
+
+async function loadLogoInventory(){
+  if(logoInventoryLoaded) return;
+  logoInventoryLoaded=true;
+  const grid=$('logoGrid');
+  try{
+    const logos=await (await fetch('/api/logos')).json();
+    if(!Array.isArray(logos)||logos.length===0){
+      grid.innerHTML='<small class="help">No saved logos found.</small>';
+      return;
+    }
+    grid.innerHTML=logos.map(logo=>{
+      const code=String(logo.code||'');
+      const kind=String(logo.kind||'');
+      const operator=kind?'':code;
+      const cargo=kind==='cargo'?'1':'0';
+      return `<div class="logo-item"><div class="logo-preview"><span>${esc(code)}</span><canvas class="inventory-logo-image" aria-hidden="true" data-operator="${esc(operator)}" data-kind="${esc(kind)}" data-cargo="${cargo}"></canvas></div><div class="logo-name">${esc(logo.name||code)}<span class="logo-code">${esc(code)}</span></div></div>`;
+    }).join('');
+
+    const items=grid.querySelectorAll('.logo-item');
+    if('IntersectionObserver' in window){
+      const observer=new IntersectionObserver(entries=>{
+        entries.forEach(entry=>{
+          if(!entry.isIntersecting) return;
+          observer.unobserve(entry.target);
+          loadStoredLogo(entry.target.querySelector('.inventory-logo-image'));
+        });
+      },{rootMargin:'120px'});
+      items.forEach(item=>observer.observe(item));
+    }else{
+      grid.querySelectorAll('.inventory-logo-image').forEach(loadStoredLogo);
+    }
+  }catch(e){
+    logoInventoryLoaded=false;
+    grid.innerHTML='<small class="help">Could not load saved logos.</small>';
+  }
+}
+
+$('logosSection').addEventListener('toggle',()=>{
+  if($('logosSection').open) loadLogoInventory();
+});
+
+function panelLines(f,includeAirline){
+  const lines=[];
+  if(includeAirline&&previewEnabled('showAirlineFlight')){
+    const identity=f.ident||'?';
+    lines.push([f.airline,identity].filter(Boolean).join(' '));
+  }else if(!includeAirline&&previewEnabled('showAirlineFlight')){
+    lines.push(f.ident||'?');
+  }
+  if(previewEnabled('showRoute')&&(f.origin||f.destination)) lines.push((f.origin||'')+'>'+(f.destination||''));
+  if(previewEnabled('showEta')&&f.etaText) lines.push(f.etaText);
+  if(previewEnabled('showAircraft')&&f.aircraft) lines.push(f.aircraft);
+  if(previewEnabled('showAltitude')&&panelMetric(f.altitudeFt)) lines.push(panelAltitude(f.altitudeFt));
+  if(previewEnabled('showSpeed')&&panelMetric(f.speedKt)) lines.push(Math.round(Number(f.speedKt))+'kt');
+  if(previewEnabled('showHeading')&&panelMetric(f.headingDeg)) lines.push(panelHeading(f.headingDeg));
+  if(previewEnabled('showVerticalRate')&&panelMetric(f.verticalRateFpm)) lines.push(panelVerticalRate(f.verticalRateFpm));
+  return lines.filter(Boolean);
+}
+
+function fitPanelLines(lines,maxColumns,availableHeight){
+  const maxLines=Math.max(1,Math.floor((availableHeight+1)/9));
+  return lines.slice(0,maxLines).map(line=>panelTruncate(line,maxColumns));
+}
+
+function panelTextLines(lines,className,flight,highlightEta){
+  return `<div class="${className}">${lines.map(line=>`<span class="panel-text${highlightEta&&line===flight.etaText?' panel-eta':''}">${esc(line)}</span>`).join('')}</div>`;
+}
+
+function renderPanelPreview(f,geometry){
+  const {panelWidth:w,panelHeight:h,layout}=geometry;
+  const tracked=!!f.pinned;
+  const showLogo=layout!=='mini'||previewEnabled('showLogo');
+  const operatorKey=f.operatorIcao||f.operatorCode||f.operatorIata||'';
+  const progress=Math.max(0,Math.min(100,Number(f.progressPct)||0));
+  const hasProgressBar=tracked&&previewEnabled('showProgressBar')&&panelMetric(f.progressPct)&&h>=16&&w>=8;
+  const progressBar=hasProgressBar
+    ? `<div class="panel-progress"><div class="panel-progress-fill" style="width:${progress}%;"></div></div>` : '';
+  let content='';
+
+  if(layout==='mini'){
+    const tx=previewEnabled('showLogo')?38:2;
+    const columns=Math.max(1,Math.floor((w-tx-1)/6));
+    const nameColumns=tracked?Math.max(1,Math.floor((w-44-tx)/6)):columns;
+    const airline=previewEnabled('showAirlineFlight')?(f.airline||f.ident||'?'):'';
+    const name=panelTruncate(airline,nameColumns);
+    const route=previewEnabled('showRoute')&& (f.origin||f.destination)
+      ? (f.origin||'')+'-'+(f.destination||'') : '';
+    const distanceValue=panelMetric(f.distanceKm)?kmToSelectedDistance(f.distanceKm):NAN;
+    const distance=previewEnabled('showDistance')&&Number.isFinite(distanceValue)
+      ? formatDistance(f.distanceKm,distanceValue<10?1:0) : '';
+    const bottomColumns=Math.max(1,Math.floor((w-2)/6));
+    const distanceFits=distance&&(route.length+1+distance.length)<=columns;
+    const routeFits=route&&distanceFits;
+    const routeLine=panelTruncate(route,columns);
+    const aircraft=previewEnabled('showAircraft')?panelTruncate(f.aircraft,columns):'';
+    const buildRowOne=unit=>{
+      const row=[];
+      if(previewEnabled('showAltitude')&&panelMetric(f.altitudeFt)) row.push('Alt:'+panelAltitude(f.altitudeFt,true,unit));
+      if(previewEnabled('showSpeed')&&panelMetric(f.speedKt)) row.push('Spd:'+Math.round(Number(f.speedKt)*1.15078)+(unit?'mph':''));
+      return row.join(' ');
+    };
+    const rowTwo=[];
+    const hasEta=previewEnabled('showEta')&&!!f.etaText;
+    if(hasEta) rowTwo.push({text:'ETA:'+f.etaText,eta:hasProgressBar});
+    if(previewEnabled('flightNumberOverVr')&&f.ident) rowTwo.push({text:f.ident});
+    if(!hasEta&&previewEnabled('showHeading')&&panelMetric(f.headingDeg)) rowTwo.push({text:'Trk:'+String(Math.round(Number(f.headingDeg))%360)+'deg'});
+    if(previewEnabled('showVerticalRate')&&panelMetric(f.verticalRateFpm)) rowTwo.push({text:panelVerticalRate(f.verticalRateFpm,true)});
+    let metricOne=buildRowOne(true);
+    if(metricOne.length>bottomColumns) metricOne=buildRowOne(false);
+    let metricTwo=[];
+    for(const candidate of rowTwo){
+      const next=metricTwo.map(item=>item.text).join(' ');
+      const combined=next?next+' '+candidate.text:candidate.text;
+      if(combined.length<=bottomColumns) metricTwo.push(candidate);
+    }
+    metricOne=panelTruncate(metricOne,bottomColumns);
+    const metricTwoHtml=metricTwo.map(item=>`<span class="panel-text${item.eta?' panel-eta':''}">${esc(item.text)}</span>`).join('<span class="panel-text"> </span>');
+    const mark=showLogo?panelMark(f,'panel-mini-mark'):'';
+    const routeBlock=distanceFits
+      ? `<div class="panel-text panel-mini-route"><span>${esc(routeLine)}</span><span class="panel-mini-distance">${esc(distance)}</span></div>`
+      : routeLine?`<span class="panel-text">${esc(routeLine)}</span>`:'';
+    const markClass=showLogo?'':' no-logo';
+    content=`<div class="panel-mini-top${markClass}">${mark}<div class="panel-mini-copy">
+      ${name?`<span class="panel-text panel-mini-airline${tracked?' tracked-name':''}">${esc(name)}</span>`:''}${routeBlock}${aircraft?`<span class="panel-text">${esc(aircraft)}</span>`:''}</div>
+      ${tracked?'<span class="panel-text panel-mini-label">TRACKED</span>':''}${distanceFits&&!tracked?'<span class="panel-mini-text panel-mini-dst">Dst</span>':''}</div>
+      ${metricOne?`<div class="panel-mini-metric panel-mini-row-one">${esc(metricOne)}</div>`:''}
+      ${metricTwo.length?`<div class="panel-mini-metric panel-mini-row-two">${metricTwoHtml}</div>`:''}`;
+  }else{
+    let lines=panelLines(f,layout==='text');
+    if(!lines.length) lines=[f.ident||'?'];
+    const textX=layout==='wide'?Math.floor(w*0.164):2;
+    const maxColumns=Math.max(1,Math.floor((w-textX-1)/6));
+    const stackTextTop=h>=48?34:20;
+    const availableHeight=layout==='wide'?h:layout==='stack'?h-stackTextTop-(hasProgressBar?3:0):h-6;
+    lines=fitPanelLines(lines,maxColumns,availableHeight);
+    const lineHtml=panelTextLines(lines,layout==='wide'?'panel-wide-lines':layout==='stack'?'panel-stack-lines':'panel-text-lines',f,hasProgressBar);
+    if(layout==='wide'){
+      content=`${panelMark(f,'panel-wide-mark')}<div class="panel-wide-divider"></div>${lineHtml}`;
+    }else if(layout==='stack'){
+      content=`${panelMark(f,'panel-stack-mark')}${lineHtml}`;
+    }else content=lineHtml;
+  }
+
+  const screenWidth=Math.min(w*3,360);
+  const textColor=settingsLoaded?$('textColor').value:'#ffffff';
+  const progressColor=settingsLoaded?$('progressColor').value:'#22c55e';
+  const screenStyle=`--panel-width:${w};--panel-height:${h};--screen-max-width:${screenWidth}px;--mini-top-height:${Math.min(32,h)/h*100}%;--mini-logo-width:${Math.min(32,w)/w*100}%;--panel-text:${esc(textColor||'#ffffff')};--panel-progress:${esc(progressColor||'#22c55e')};--operator-accent:${panelAccent(operatorKey)};`;
+  const layoutClass=layout==='mini'?'mini':layout==='wide'?'wide':layout==='stack'?'stack':'text';
+  return `<div class="flight-display-card"><div class="panel-screen panel-${layoutClass}${tracked?' tracked':''}" data-panel-width="${w}" style="${screenStyle}">${content}${progressBar}</div></div>`;
+}
+
+function fitPanelPreviews(){
+  document.querySelectorAll('.panel-screen').forEach(screen=>{
+    const width=Number(screen.dataset.panelWidth);
+    if(!width||!screen.clientWidth) return;
+    const scale=screen.clientWidth/width;
+    screen.style.setProperty('--pixel-font',`${8*scale}px`);
+    screen.style.setProperty('--pixel-line',`${9*scale}px`);
+    screen.style.setProperty('--small-font',`${6*scale}px`);
+    const panelHeight=Number(screen.style.getPropertyValue('--panel-height'));
+    const markSize=screen.classList.contains('mini')?32:screen.classList.contains('stack')&&panelHeight>=48?32:16;
+    screen.style.setProperty('--mark-font',`${markSize/2*scale}px`);
+    screen.style.setProperty('--panel-border',`${Math.max(1,scale)}px`);
+    screen.style.setProperty('--progress-height',`${Math.max(1,Math.min(2,Number(screen.style.getPropertyValue('--panel-height')))*scale)}px`);
+  });
+}
+
+function renderFlightCards(flights){
+  const geometry=panelGeometry();
+  $('flights').innerHTML=flights.length?flights.map(x=>{
+    const metrics=[];
+    if('distanceKm'in x) metrics.push(formatDistance(x.distanceKm));
+    if('altitudeFt'in x) metrics.push(x.altitudeFt+'ft');
+    if('speedKt'in x) metrics.push(x.speedKt+'kt');
+    if('headingDeg'in x) metrics.push('HDG'+x.headingDeg);
+    if('verticalRateFpm'in x) metrics.push(x.verticalRateFpm+'fpm');
+    if('etaText'in x) metrics.push('ETA '+esc(x.etaText));
+    if('progressPct'in x) metrics.push(x.progressPct+'% flown');
+    const ignore=x.operatorIcao?`<button class="ghost" type="button" style="float:right;padding:2px 8px;font-size:12px" data-ignore="${esc(x.operatorIcao)}">ignore ${esc(x.operatorIcao)}</button>`:'';
+    const symbols=`${x.helicopter?'🚁':''}${x.cargo?'📦':''}${x.private?'🛩️':''}`;
+    const aircraftDescription=[x.aircraftManufacturer,x.aircraftModel].filter(Boolean).join(' ');
+    return `<div class="flight-pair"><div class="flight">${ignore}<b>${esc(x.ident)||'?'}</b> ${symbols} <span>${esc(x.airline)}</span><br>
+      <span>${esc(x.origin)||'?'} → ${esc(x.destination)||'?'} · ${esc(x.aircraft)}${aircraftDescription?` · ${esc(aircraftDescription)}`:''}</span>
+      ${metrics.length?'<br><span>'+metrics.join(' · ')+'</span>':''}</div>${renderPanelPreview(x,geometry)}</div>`;
+  }).join(''):'<small class="help">No flights currently displayed.</small>';
+  requestAnimationFrame(()=>{ fitPanelPreviews(); loadPanelLogos(); });
+}
+
 function rgbToHex(r,g,b){return '#'+[r,g,b].map(x=>x.toString(16).padStart(2,'0')).join('');}
 function hexToRgb(h){const n=parseInt(h.slice(1),16);return [(n>>16)&255,(n>>8)&255,n&255];}
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}
@@ -447,11 +848,34 @@ function toggleMode(){
   const flights = $('mode').value === 'flights';
   $('flightsBox').classList.toggle('hide', !flights);
   $('areaBox').classList.toggle('hide', flights);
+  toggleFr24Cadence();
 }
 
 function toggleServerUrl(){
   $('serverUrlBox').classList.toggle('hide', $('positionSource').value !== 'server');
 }
+
+function toggleFr24Cadence(){
+  $('fr24CadenceBox').classList.toggle('hide',
+    $('mode').value !== 'area' || $('positionSource').value !== 'fr24');
+  updateFr24CadenceRanges();
+}
+
+function updateFr24CadenceRanges(){
+  const displayRadius=Math.max(0,Number($('radiusKm').value)||0);
+  const watchRadius=Math.max(displayRadius,Number($('fr24WatchRadiusKm').value)||0);
+  const outerEdge=Math.min(watchRadius,Math.max(displayRadius,Number($('fr24OuterBandKm').value)||0));
+  const innerEdge=Math.min(outerEdge,Math.max(0,Number($('fr24InnerBandKm').value)||0));
+  const format=value=>Number.isInteger(value)?String(value):String(Number(value.toFixed(2)));
+  const unit=distanceUnitSuffix();
+  $('fr24NoAircraftRange').textContent=`No aircraft within ${format(watchRadius)} ${unit}`;
+  $('fr24OuterBandRange').textContent=`${format(outerEdge)}–${format(watchRadius)} ${unit}`;
+  $('fr24MiddleBandRange').textContent=`${format(innerEdge)}–${format(outerEdge)} ${unit}`;
+  $('fr24InnerBandRange').textContent=`0–${format(innerEdge)} ${unit}`;
+}
+
+for(const id of ['radiusKm','fr24WatchRadiusKm','fr24OuterBandKm','fr24InnerBandKm'])
+  $(id).addEventListener('input',updateFr24CadenceRanges);
 
 async function loadSettings(){
   const s = await (await fetch('/api/settings')).json();
@@ -465,7 +889,6 @@ async function loadSettings(){
   $('openSkyClientId').value = s.api.openSkyClientId || '';
   secretField('openSkyClientSecret', s.api.openSkyClientSecretSet);
   secretField('aeroApiKey', s.api.aeroApiKeySet);
-  secretField('controlToken', s.api.controlTokenSet);
   $('positionSource').value = s.api.positionSource || 'opensky';
   $('serverUrl').value = s.api.serverUrl || '';
   $('enrichmentSource').value = s.api.enrichmentSource || 'adsbdb';
@@ -477,17 +900,28 @@ async function loadSettings(){
   $('mode').value = s.tracking.mode;
   $('centerLat').value = s.tracking.centerLat;
   $('centerLon').value = s.tracking.centerLon;
-  $('radiusKm').value = s.tracking.radiusKm;
+  currentDistanceUnit=['km','mi','nm'].includes(s.tracking.distanceUnit)?s.tracking.distanceUnit:'km';
+  $('distanceUnit').value=currentDistanceUnit;
+  $('radiusKm').value=Number(kmToSelectedDistance(s.tracking.radiusKm).toFixed(2));
+  $('fr24WatchRadiusKm').value=Number(kmToSelectedDistance(s.tracking.fr24WatchRadiusKm ?? 20).toFixed(2));
+  $('fr24OuterBandKm').value=Number(kmToSelectedDistance(s.tracking.fr24OuterBandKm ?? 10).toFixed(2));
+  $('fr24InnerBandKm').value=Number(kmToSelectedDistance(s.tracking.fr24InnerBandKm ?? 5).toFixed(2));
+  updateDistanceUnitLabels();
+  $('fr24NoAircraftIntervalSeconds').value = s.tracking.fr24NoAircraftIntervalSeconds ?? 120;
+  $('fr24OuterBandIntervalSeconds').value = s.tracking.fr24OuterBandIntervalSeconds ?? 30;
+  $('fr24MiddleBandIntervalSeconds').value = s.tracking.fr24MiddleBandIntervalSeconds ?? 15;
+  $('fr24InnerBandIntervalSeconds').value = s.tracking.fr24InnerBandIntervalSeconds ?? 10;
   $('autoLocateOnBoot').checked = !!s.tracking.autoLocateOnBoot;
   $('trackedFlights').value = (s.tracking.trackedFlights || []).join('\n');
 
   $('brightness').value = s.display.brightness;
   $('textColor').value = rgbToHex(s.display.textColorR, s.display.textColorG, s.display.textColorB);
+  $('progressColor').value = rgbToHex(s.display.progressColorR, s.display.progressColorG, s.display.progressColorB);
   $('maxFlights').value = s.display.maxFlights;
   $('cycleSeconds').value = s.display.cycleSeconds;
   $('fetchIntervalSeconds').value = s.display.fetchIntervalSeconds;
 
-  for (const k of ['showAirlineFlight','showRoute','showEta','showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr'])
+  for (const k of ['showLogo','showAirlineFlight','showRoute','showEta','showDistance','showProgressBar','showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr'])
     $(k).checked = !!s.layout[k];
   selectValue('noFlightsMode', s.layout.noFlightsMode || 'dots', 'Stored');
 
@@ -534,6 +968,8 @@ async function loadSettings(){
   // window is real: main.cpp serves one request per loop() and can block for
   // seconds. The button's own `disabled` IS the state -- no second flag.
   const b = $('saveBtn'); b.disabled = false; b.title = '';
+  settingsLoaded = true;
+  renderFlightCards(latestFlights);
 }
 
 // Omit an untouched secret entirely rather than sending "". fromJson skips
@@ -541,23 +977,33 @@ async function loadSettings(){
 function secret(id){ const v=$(id).value; return v ? {[id]:v} : {}; }
 function collect(){
   const [r,g,b] = hexToRgb($('textColor').value);
+  const [pr,pg,pb] = hexToRgb($('progressColor').value);
   const lines = v => v.split(/[\n,]/).map(x=>x.trim()).filter(Boolean);
   return {
     network:{ wifiSsid:$('wifiSsid').value, ...secret('wifiPassword') },
-    api:{ openSkyClientId:$('openSkyClientId').value, ...secret('openSkyClientSecret'), ...secret('aeroApiKey'), ...secret('controlToken'), positionSource:$('positionSource').value, serverUrl:$('serverUrl').value, enrichmentSource:$('enrichmentSource').value, enrichmentFallbackToAeroApi:$('enrichmentFallbackToAeroApi').checked, enrichmentCacheSeconds:+$('enrichmentCacheSeconds').value },
+    api:{ openSkyClientId:$('openSkyClientId').value, ...secret('openSkyClientSecret'), ...secret('aeroApiKey'), positionSource:$('positionSource').value, serverUrl:$('serverUrl').value, enrichmentSource:$('enrichmentSource').value, enrichmentFallbackToAeroApi:$('enrichmentFallbackToAeroApi').checked, enrichmentCacheSeconds:+$('enrichmentCacheSeconds').value },
     tracking:{
       mode:$('mode').value,
       centerLat:parseFloat($('centerLat').value), centerLon:parseFloat($('centerLon').value),
-      radiusKm:parseFloat($('radiusKm').value),
+      distanceUnit:currentDistanceUnit,
+      radiusKm:selectedDistanceToKm($('radiusKm').value),
+      fr24WatchRadiusKm:selectedDistanceToKm($('fr24WatchRadiusKm').value),
+      fr24OuterBandKm:selectedDistanceToKm($('fr24OuterBandKm').value),
+      fr24InnerBandKm:selectedDistanceToKm($('fr24InnerBandKm').value),
+      fr24NoAircraftIntervalSeconds:+$('fr24NoAircraftIntervalSeconds').value,
+      fr24OuterBandIntervalSeconds:+$('fr24OuterBandIntervalSeconds').value,
+      fr24MiddleBandIntervalSeconds:+$('fr24MiddleBandIntervalSeconds').value,
+      fr24InnerBandIntervalSeconds:+$('fr24InnerBandIntervalSeconds').value,
       autoLocateOnBoot:$('autoLocateOnBoot').checked,
       trackedFlights:lines($('trackedFlights').value)
     },
     display:{
       brightness:+$('brightness').value, textColorR:r, textColorG:g, textColorB:b,
+      progressColorR:pr, progressColorG:pg, progressColorB:pb,
       maxFlights:+$('maxFlights').value, cycleSeconds:+$('cycleSeconds').value,
       fetchIntervalSeconds:+$('fetchIntervalSeconds').value
     },
-    layout:Object.assign(Object.fromEntries(['showAirlineFlight','showRoute','showEta','showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr'].map(k=>[k,$(k).checked])), {noFlightsMode:$('noFlightsMode').value}),
+    layout:Object.assign(Object.fromEntries(['showLogo','showAirlineFlight','showRoute','showEta','showDistance','showProgressBar','showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr'].map(k=>[k,$(k).checked])), {noFlightsMode:$('noFlightsMode').value}),
     filters:{
       minAltitudeFt:+$('minAltitudeFt').value, maxAltitudeFt:+$('maxAltitudeFt').value,
       excludeOnGround:$('excludeOnGround').checked,
@@ -588,51 +1034,6 @@ async function save(){
   const res = await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collect())});
   const j = await res.json();
   toast(j.ok ? 'Saved ✓' : ('Error: '+(j.error||'failed')));
-}
-
-async function checkFirmware(){
-  const el = $('fwState');
-  el.textContent = 'Checking…';
-  try{
-    const j = await (await fetch('/api/firmware')).json();
-    if(!j.ok){ el.innerHTML = `Running <b>${esc(j.running)}</b>. ${esc(j.error||'no update available')}`; return; }
-    el.innerHTML = j.differs
-      ? `Running <b>${esc(j.running)}</b> — server offers <b>${esc(j.available)}</b> (${Math.round(j.size/1024)}KB).`
-      : `Running <b>${esc(j.running)}</b> — already the version the server offers.`;
-  }catch(e){ el.textContent = 'Could not reach the device.'; }
-}
-
-async function installFirmware(){
-  if(!confirm('Download, verify and install the firmware from your server? The wall reboots if it passes.')) return;
-  const el = $('fwState');
-  try{
-    const j = await (await fetch('/api/firmware',{method:'POST'})).json();
-    if(!j.ok){ el.innerHTML = 'Update refused: '+esc(j.error||'unknown'); return; }
-    // The device answers BEFORE downloading, then reboots on success -- so a
-    // dropped connection here is the good outcome, not the bad one.
-    el.innerHTML = `Downloading and verifying <b>${esc(j.staging)}</b>. The wall reboots if the signature passes; this page will stop responding for a minute.`;
-  }catch(e){ el.textContent = 'Could not reach the device.'; }
-}
-
-async function updateUi(){
-  toast('Checking the server…');
-  try{
-    const j = await (await fetch('/api/updateui',{method:'POST'})).json();
-    if(!j.ok){ toast('Update failed: '+(j.error||'unknown')); return; }
-    // Reload only when the bytes actually changed -- a no-op reload looks like
-    // a failure to anyone watching, and the device says which happened.
-    if(j.changed){ toast('Updated ✓ reloading'); setTimeout(()=>location.reload(true), 900); }
-    else toast('Already up to date');
-  }catch(e){ toast('Could not reach the device'); }
-}
-
-async function clearUi(){
-  if(!confirm('Go back to the web page built into the firmware?')) return;
-  try{
-    const j = await (await fetch('/api/updateui',{method:'DELETE'})).json();
-    toast(j.cleared ? 'Using built-in ✓ reloading' : 'Already using the built-in page');
-    if(j.cleared) setTimeout(()=>location.reload(true), 900);
-  }catch(e){ toast('Could not reach the device'); }
 }
 
 async function restart(){
@@ -671,9 +1072,38 @@ async function scanWifi(){
   }catch(e){ $('scanlist').innerHTML='<small class="help">Scan failed.</small>'; }
 }
 
-async function loadStatus(){
+  async function uploadFirmware(){
+    const firmware=$('firmwareFile').files[0];
+    const signature=$('firmwareSignature').files[0];
+    const targetFile=$('firmwareTargetFile').files[0];
+    if(!firmware||!signature||!targetFile){ toast('Select firmware, signature, and target files'); return; }
+    const button=$('firmwareUploadButton');
+    const state=$('firmwareUploadState');
+    const target=$('firmwareTarget').textContent;
+    if(!target||target==='…'){ toast('Could not determine this board target'); return; }
+    if(!confirm(`Upload signed firmware for ${target} and restart?`)) return;
+    button.disabled=true;
+    state.textContent='Uploading…';
+    try{
+      const body=new FormData();
+      body.append('signature',signature);
+      body.append('target',targetFile);
+      body.append('firmware',firmware);
+      const response=await fetch('/api/ota',{method:'POST',body});
+      const result=await response.json();
+      if(!response.ok||!result.ok) throw new Error(result.error||`HTTP ${response.status}`);
+      state.textContent='Verified; restarting…';
+    }catch(e){
+      state.textContent='Upload failed';
+      toast(e.message||'Firmware upload failed');
+      button.disabled=false;
+    }
+  }
+
+  async function loadStatus(){
   try{
     const s = await (await fetch('/api/status')).json();
+    if('buildTarget' in s) $('firmwareTarget').textContent = s.buildTarget;
     const pill = $('connPill');
     if(s.apMode){ pill.textContent='Setup AP'; pill.className='pill off'; }
     else if(s.wifiConnected){ pill.textContent='Online'; pill.className='pill on'; }
@@ -717,19 +1147,37 @@ async function loadStatus(){
         ? `<span class="pill off">panel dark${s.panelOff ? ' — button off' : ''}</span>` : '')+
       ('manualBrightness' in s && s.manualBrightness >= 0
         ? `<span class="pill">manual brightness ${s.manualBrightness}</span>` : '');
-    // Board-specific pins, reported by the device (the ESP32 and S3 maps differ).
+    if('fr24WatchCountsValid' in s){
+      $('fr24NoAircraftTotal').textContent='—';
+      $('fr24OuterBandTotal').textContent=s.fr24WatchCountsValid?String(s.fr24WatchOuterCount):'—';
+      $('fr24MiddleBandTotal').textContent=s.fr24WatchCountsValid?String(s.fr24WatchMiddleCount):'—';
+      $('fr24InnerBandTotal').textContent=s.fr24WatchCountsValid?String(s.fr24WatchInnerCount):'—';
+    }
+    if('fr24Calls' in s){
+      const elapsed=Number(s.apiCallWindowSeconds)||0;
+      const hours=Math.floor(elapsed/3600),minutes=Math.floor((elapsed%3600)/60);
+      const windowLabel=s.apiCallWindowFull?'last 24h':`since boot ${hours}h ${minutes}m`;
+      $('apiCallStats').innerHTML=
+        `<span class="pill">API calls · ${windowLabel}</span>`+
+        `<span class="pill">FR24 ${s.fr24Calls}</span>`+
+        `<span class="pill">ADSBDB ${s.adsbdbCalls}</span>`+
+        `<span class="pill">HexDB ${s.hexdbCalls}</span>`+
+        `<span class="pill">AeroAPI ${s.aeroApiCalls}</span>`;
+    }
     if('fwVersion' in s){
-      const el=$('fwState');
-      if(el && el.textContent === '…')
-        el.innerHTML = `Running <b>${esc(s.fwVersion)}</b>.` +
-          (s.fwPendingVerify ? ' <b>Awaiting validation</b> — reverts on reboot until a fetch succeeds.' : '');
+      const installedAt=Number(s.fwInstalledAt);
+      const installedDate=Number.isFinite(installedAt)&&installedAt>0
+        ? new Date(installedAt*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'})
+        : 'unavailable';
+      const fw=document.createElement('span');
+      fw.id='fwState';
+      fw.className='pill';
+      fw.title='Short Git commit ID; -dirty means the build included uncommitted changes.';
+      fw.textContent=`Firmware ${s.fwVersion} · Installed ${installedDate}`+
+        (s.fwPendingVerify ? ' · awaiting validation' : '');
+      $('status').appendChild(fw);
     }
-    if('uiSource' in s){
-      const el=$('uiSource');
-      if(el) el.innerHTML = s.uiSource === 'server'
-        ? `Serving the page <b>downloaded from your server</b> (${esc((s.uiSha||'').slice(0,12))}…).`
-        : 'Serving the page <b>built into the firmware</b>. Nothing downloaded yet.';
-    }
+    // Board-specific pins, reported by the device (the ESP32 and S3 maps differ).
     if('i2cSda' in s){ const p=$('i2cPins'); if(p) p.textContent = `SDA ${s.i2cSda} / SCL ${s.i2cScl}`; }
     if('adc1Min' in s){ const a=$('adc1Range'); if(a) a.textContent = `${s.adc1Min}-${s.adc1Max}`; }
     if('buttonAPin' in s){ const b=$('btnPins'); if(b) b.textContent = `GPIO ${s.buttonAPin} (A) and GPIO ${s.buttonBPin} (B)`; }
@@ -745,25 +1193,8 @@ async function loadStatus(){
   }
   try{
     const f = await (await fetch('/api/flights')).json();
-    $('flights').innerHTML = f.map(x=>{
-      // Distance leads: the list is ordered nearest-first, so it reads as the sort key.
-      const m=[]; if('distanceKm'in x)m.push(x.distanceKm.toFixed(1)+'km');
-      if('altitudeFt'in x)m.push(x.altitudeFt+'ft'); if('speedKt'in x)m.push(x.speedKt+'kt');
-      if('headingDeg'in x)m.push('HDG'+x.headingDeg); if('verticalRateFpm'in x)m.push(x.verticalRateFpm+'fpm');
-      // Server-sourced only (empty/omitted for OpenSky/adsb.lol and any server
-      // flight with no destination) -- verbatim, same rule as the panel.
-      if('etaText'in x)m.push('ETA '+esc(x.etaText));
-      // Tracked cards only. Shown next to the ETA because they are the same
-      // clock -- the panel makes that point by drawing both in green.
-      if('progressPct'in x)m.push(x.progressPct+'% flown');
-      // "ignore EJA" beside the flight that is on the wall right now, which
-      // beats asking the person to work the code out from the name. Only
-      // when the firmware reported one (older builds do not).
-      const ig = x.operatorIcao ? `<button class="ghost" type="button" style="float:right;padding:2px 8px;font-size:12px" data-ignore="${esc(x.operatorIcao)}">ignore ${esc(x.operatorIcao)}</button>` : '';
-      return `<div class="flight">${ig}<b>${esc(x.ident)||'?'}</b> ${x.helicopter?'🚁':''}${x.cargo?'📦':''}${x.private?'🛩️':''} <span>${esc(x.airline)}</span><br>
-        <span>${esc(x.origin)||'?'} → ${esc(x.destination)||'?'} · ${esc(x.aircraft)}</span>
-        ${m.length?'<br><span>'+m.join(' · ')+'</span>':''}</div>`;
-    }).join('') || '<small class="help">No flights currently displayed.</small>';
+    latestFlights=f;
+    renderFlightCards(f);
   }catch(e){}
 }
 
@@ -958,6 +1389,10 @@ document.addEventListener('click', ev=>{
   else if(el.hasAttribute('data-alkill')) delAirlineName(el.getAttribute('data-alkill'));
   else if(el.hasAttribute('data-alpick')){ $('alCode').value=el.getAttribute('data-alpick'); $('alName').focus(); }
 });
+
+for(const id of previewControlIds)
+  $(id).addEventListener('input',()=>renderFlightCards(latestFlights));
+window.addEventListener('resize',fitPanelPreviews);
 
 // setInterval fired on wall-clock regardless of whether the last tick had
 // finished, so against a device that blocks for seconds several polls could be

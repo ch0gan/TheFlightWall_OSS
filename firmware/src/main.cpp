@@ -16,7 +16,9 @@ Run loop:
 - React to settings changes / restart requests from the web UI.
 */
 #include <vector>
+#include <atomic>
 #include <utility>
+#include <algorithm>
 #include <time.h>
 #include <WiFi.h>
 #include "esp_netif.h"
@@ -27,11 +29,13 @@ Run loop:
 #include <DNSServer.h>
 #include <LittleFS.h>
 #include <ESPmDNS.h>
+#include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 #include "core/Settings.h"
+#include "core/ApiCallStats.h"
+#include "config/WiFiConfiguration.h"
 #include "core/AssetUpdater.h"
 #include "core/FirmwareUpdater.h"
-#include "core/ControlClient.h"
 #include "core/HttpJson.h"
 #include "esp_heap_caps.h"
 #include "esp_task_wdt.h"
@@ -84,6 +88,7 @@ static const char *resetReasonText();
 
 static const char *kMdnsHostname = "flightwall"; // reachable at http://flightwall.local
 static bool g_apMode = false;
+static bool g_arduinoOtaEnabled = false;
 static unsigned long g_wifiDownSinceMs = 0; // for the runtime reconnect/AP-fallback watchdog
 // When the setup AP started, for the bounded-retry watchdog below. Zero means
 // "not counting" -- either we are not in AP mode, or there are no credentials to
@@ -94,9 +99,6 @@ static unsigned long g_apSinceMs = 0;
 // zeroed the moment there are no credentials -- exactly the case this runs in.
 static unsigned long g_apStartedMs = 0;
 static bool g_apDmaStopped = false;
-// Set when a remote command changed settings; consumed by the same block that
-// handles a LAN save, so remote and local edits cannot diverge in behaviour.
-static bool g_controlSettingsChanged = false;
 // How long the CURRENT lit period lasts. Starts at the 30s opener and becomes a
 // full minute for every later one; see the duty-cycle block in loop().
 static unsigned long g_apPanelLitMs = 0;
@@ -214,8 +216,6 @@ static bool beginWifiSta();
 static bool awaitWifiSta();
 /** Defined below; pulls any logo tile this cycle's flights need. */
 static void fetchMissingLogos();
-/** Defined below; reports to the server and applies anything queued there. */
-static void controlCheckIn();
 
 /**
  * Bring the radio up and START associating. Returns false only when there is
@@ -544,13 +544,13 @@ static void handleButtons()
 
     if (e.clickB)
     {
-        static const char *kModes[] = {"dots", "clock", "funfact", "clockfact"};
+        static const char *kModes[] = {"dots", "blank", "clock", "funfact", "clockfact"};
         size_t i = 0;
-        while (i < 4 && g_settings.layout.noFlightsMode != kModes[i])
+        while (i < 5 && g_settings.layout.noFlightsMode != kModes[i])
             ++i;
-        if (i >= 4)
+        if (i >= 5)
             i = 0; // unknown value -> land on a known one rather than guessing
-        g_settings.layout.noFlightsMode = kModes[(i + 1) % 4];
+        g_settings.layout.noFlightsMode = kModes[(i + 1) % 5];
         markSettingsDirty();
         g_display.markFlightsUpdated();
         g_display.showToast(g_settings.layout.noFlightsMode);
@@ -569,12 +569,69 @@ static void logHeap(const char *tag)
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 }
 
-static void doFetchAndRender()
+// The network fetch runs on its own task so loop() (web UI, buttons, card rotation)
+// never waits on a slow or failing source. loop() applies the result when it is done.
+static std::atomic<bool> g_fetchRunning{false};
+static std::atomic<bool> g_fetchDone{false};
+static std::vector<FlightInfo> g_fetchResult;
+static bool g_fetchOk = false;
+static size_t g_fetchEnriched = 0;
+static double g_fetchNearestDistanceKm = NAN;
+static double g_lastFr24NearestDistanceKm = NAN;
+static WatchBandCounts g_fetchFr24BandCounts;
+static bool g_fetchFr24BandCountsValid = false;
+static WatchBandCounts g_lastFr24BandCounts;
+static bool g_lastFr24BandCountsValid = false;
+
+static void runFetch()
 {
-    logHeap("cycle-start");
     std::vector<FlightInfo> flights;
     bool ok = false;
     size_t enriched = g_fetcher->fetchFlights(flights, ok);
+    g_fetchNearestDistanceKm = g_fetcher->nearestWatchDistanceKm();
+    g_fetchFr24BandCounts = g_fetcher->lastFr24WatchBandCounts();
+    g_fetchFr24BandCountsValid = g_fetcher->fr24WatchBandCountsValid();
+    g_fetchResult = std::move(flights);
+    g_fetchOk = ok;
+    g_fetchEnriched = enriched;
+    g_fetchDone = true;
+}
+
+static void fetchTaskFn(void *)
+{
+    runFetch();
+    vTaskDelete(nullptr);
+}
+
+static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t enriched,
+                             double nearestDistanceKm, WatchBandCounts fr24BandCounts,
+                             bool fr24BandCountsValid);
+
+static void startFetch()
+{
+    logHeap("cycle-start");
+    g_fetchDone = false;
+    g_fetchRunning = true;
+    // Core 0 alongside the WiFi stack; loop() and the panel stay on core 1.
+    if (xTaskCreatePinnedToCore(fetchTaskFn, "fetch", 16384, nullptr, 1, nullptr, 0) != pdPASS)
+    {
+        Serial.println("fetch task create failed; fetching inline");
+        runFetch();
+    }
+}
+
+static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t enriched,
+                             double nearestDistanceKm, WatchBandCounts fr24BandCounts,
+                             bool fr24BandCountsValid)
+{
+    g_lastFr24NearestDistanceKm = nearestDistanceKm;
+    g_lastFr24BandCountsValid = ok && fr24BandCountsValid;
+    if (g_lastFr24BandCountsValid)
+        g_lastFr24BandCounts = fr24BandCounts;
+    g_web.setFr24WatchCounts(g_lastFr24BandCountsValid,
+                             g_lastFr24BandCounts.inner,
+                             g_lastFr24BandCounts.middle,
+                             g_lastFr24BandCounts.outer);
     if (!ok)
     {
         if (g_consecutiveFailures < 255)
@@ -602,7 +659,8 @@ static void doFetchAndRender()
     // one mechanism relieving pressure was being discarded by the very responses that
     // signal it. A genuinely quiet sky is unaffected: nothing increments the counter
     // unless fetches are actually failing.
-    if (!flights.empty())
+    const bool foundInWatchRadius = nearestDistanceKm >= 0.0;
+    if (!flights.empty() || foundInWatchRadius)
         g_consecutiveFailures = 0;
     g_lastGoodFetchMs = millis();
 
@@ -614,9 +672,15 @@ static void doFetchAndRender()
     // fetch had no such grace, so a throttled source blanked the wall instantly.
     if (flights.empty())
     {
-        if (g_consecutiveEmpty < 255)
+        if (foundInWatchRadius)
+        {
+            g_consecutiveEmpty = 0;
+        }
+        else if (g_consecutiveEmpty < 255)
+        {
             g_consecutiveEmpty++;
-        if (g_consecutiveEmpty < kEmptyConfirmCycles && !g_lastFlights.empty())
+        }
+        if (!foundInWatchRadius && g_consecutiveEmpty < kEmptyConfirmCycles && !g_lastFlights.empty())
         {
             Serial.printf("Empty result (%u of %u) — holding last flights\n",
                           (unsigned)g_consecutiveEmpty, (unsigned)kEmptyConfirmCycles);
@@ -664,7 +728,6 @@ static void doFetchAndRender()
     FirmwareUpdater::markRunningImageValid();
 
     fetchMissingLogos();
-    controlCheckIn();
     // A fetch always supplies fresh data: force a recompose even if the cycled
     // index is unchanged. The 200ms re-render path deliberately does NOT do this.
     g_display.markFlightsUpdated();
@@ -711,153 +774,6 @@ static void fetchMissingLogos()
         {
             fetched++; // a failure still costs a request; do not retry in a tight loop
         }
-    }
-}
-
-// Report to the server and apply anything queued there.
-//
-// On the fetch cycle rather than a timer of its own: the device is already
-// talking to this server every cycle, so this adds one request to a
-// conversation that exists instead of inventing a second cadence. It also means
-// remote control has exactly the latency the wall already runs at -- a change
-// lands within one fetch interval, which is the honest cost of never opening an
-// inbound port.
-//
-// Silent when unconfigured: no token, no request.
-static void controlCheckIn()
-{
-    if (g_settings.controlToken.length() == 0 || g_settings.serverUrl.length() == 0)
-        return;
-
-    // What the wall reports about itself. Deliberately the same values
-    // /api/status serves, so the remote page and the LAN page describe the
-    // device identically rather than approximately.
-    JsonDocument doc;
-    doc["fwVersion"] = FirmwareUpdater::runningVersion();
-    doc["ip"] = WiFi.localIP().toString();
-    doc["rssi"] = WiFi.RSSI();
-    doc["flightCount"] = (int)g_lastFlights.size();
-    doc["note"] = g_web.lastNote();
-    doc["brightness"] = g_appliedBrightness;
-    doc["panelOff"] = g_panelOff;
-    doc["mode"] = (g_settings.mode == TrackingMode::Flights) ? "flights" : "area";
-    doc["uptimeS"] = (uint32_t)(millis() / 1000);
-    // Same string /api/status serves, per this block's own rule -- and the
-    // reason it exists is that the remote page is the ONLY channel to a
-    // wall-mounted board with no cable in it.
-    doc["otaError"] = g_web.lastOtaError();
-    doc["resetReason"] = resetReasonText();
-    // Which page is being served and which source actually answered -- the
-    // two questions ("I changed the UI and nothing happened", "it says server
-    // but shows no routes") that the remote page could not answer before.
-    doc["uiSource"] = AssetUpdater::servingCachedUi() ? "server" : "builtin";
-    doc["uiSha"] = AssetUpdater::cachedUiSha();
-    doc["activeSource"] = g_web.activeSource();
-    doc["sourceFallback"] = g_web.sourceFallback();
-    doc["serverStale"] = g_web.serverStale();
-    doc["lightLevel"] = g_web.lightLevel();
-    doc["lightDark"] = g_web.lightDark();
-
-    // The device's own settings, redacted exactly as /api/settings redacts them.
-    //
-    // Without this the remote page has no idea what the wall is currently set
-    // to, so its form starts empty -- and an untouched checkbox then reads as
-    // "set this to false" rather than "leave it alone". Queueing one filter
-    // change would silently clear two others. A control page has to show the
-    // real state before it can safely offer to change it.
-    JsonDocument settingsDoc;
-    if (deserializeJson(settingsDoc, g_settings.toJsonPublic()) == DeserializationError::Ok)
-        doc["settings"] = settingsDoc;
-
-    String statusJson;
-    serializeJson(doc, statusJson);
-
-    const ControlClient::Outcome o =
-        ControlClient::checkIn(g_settings.serverUrl, g_settings.controlToken, statusJson);
-
-    if (o.error.length())
-    {
-        // One line, not a note on /api/status: a control server being briefly
-        // unreachable must not look like the flight fetch failing, which is the
-        // field a person actually reads to judge whether the wall is working.
-        Serial.printf("[control] check-in failed: %s\n", o.error.c_str());
-        return;
-    }
-
-    if (o.settingsChanged)
-        g_controlSettingsChanged = true;
-
-    // Clear before update: a batch that says "back to built-in, then fetch
-    // again" is a re-download, which is the only reading of that pair that
-    // does anything.
-    if (o.clearUi)
-    {
-        // The LAN page's "Use built-in" button, from afar: the escape hatch
-        // for a downloaded page that is valid, current, and bad.
-        const bool had = AssetUpdater::servingCachedUi();
-        AssetUpdater::clearCachedUi();
-        Serial.printf("[control] ui cache %s\n",
-                      had ? "cleared; serving the built-in page" : "was already the built-in page");
-    }
-    // Updates before restart, and restart last: a batch containing both should
-    // do the work and THEN reboot, not reboot away from it.
-    if (o.updateUi)
-    {
-        const AssetUpdater::FetchResult r = AssetUpdater::updateUi(g_settings.serverUrl);
-        Serial.printf("[control] ui update: %s\n", r.ok ? (r.changed ? "updated" : "already current") : r.error.c_str());
-    }
-    if (o.updateFirmware)
-    {
-        const FirmwareUpdater::Available a = FirmwareUpdater::check(g_settings.serverUrl);
-        if (!a.ok)
-        {
-            g_web.setLastOtaError(a.error);
-            Serial.printf("[control] firmware check failed: %s\n", a.error.c_str());
-        }
-        else if (a.version == FirmwareUpdater::runningVersion())
-            Serial.println("[control] firmware already current");
-        else
-        {
-            // PANEL DARK FOR THE DOWNLOAD. Not a nicety -- it is what makes an
-            // over-the-air update possible at all on this hardware.
-            //
-            // MEASURED, 2026-08-25: two OTA attempts failed with
-            // `download failed (-11)` -- HTTPC_ERROR_READ_TIMEOUT -- against
-            // the 30s budget setTimeout already allows. The server served the
-            // full 1213056 bytes with a 200 both times, so nothing was wrong
-            // with the image, the signature or the flash: the connection
-            // simply stalled for over half a minute mid-stream.
-            //
-            // A 1-per-second ping in the same window read 4% loss, which is
-            // why this looked survivable and was not. The ping barely loads
-            // the radio; a 1.2MB stream saturates it, and THAT is when the
-            // panel's I2S DMA starves it -- the same mechanism §1 of HANDOFF
-            // documents, and the same one AP setup mode already works around
-            // ten lines of Serial output away ("panel lit for a minute; wifi
-            // will struggle until it is dark again").
-            //
-            // stopOutput() halts the DMA, not the brightness setting, so it
-            // does NOT reach decideIdle() -- that reads effectiveBrightness.
-            // Suppressing fetches here would be self-defeating, since the
-            // check-in loop is what delivers the update in the first place.
-            Serial.println("[ota] panel dark; radio has the bus for the download");
-            g_display.stopOutput();
-
-            // Reboots on success, so nothing after this runs.
-            const FirmwareUpdater::ApplyResult r = FirmwareUpdater::apply(g_settings.serverUrl, a);
-
-            // Failure only. The panel must come back, or a failed update is
-            // indistinguishable from a dead wall.
-            g_display.startOutput();
-            g_web.setLastOtaError(r.error);
-            Serial.printf("[control] firmware update failed: %s\n", r.error.c_str());
-        }
-    }
-    if (o.restart)
-    {
-        Serial.println("[control] restarting on request");
-        delay(200);
-        ESP.restart();
     }
 }
 
@@ -988,6 +904,7 @@ static const char *resetReasonText()
 void setup()
 {
     Serial.begin(115200);
+    ApiCallStats::begin();
     delay(200);
 
     // First line out of the gate, before anything can fail and hide it.
@@ -1027,13 +944,25 @@ void setup()
     {
         Serial.print("WiFi connected: ");
         Serial.println(WiFi.localIP());
-        g_display.displayMessage(String("WiFi OK ") + WiFi.localIP().toString());
+        g_display.displayMessage(String("WiFi OK\n") + WiFi.localIP().toString());
         delay(2000);
         // Advertise http://flightwall.local so the UI is reachable without the IP.
         if (MDNS.begin(kMdnsHostname))
         {
             MDNS.addService("http", "tcp", 80);
             Serial.printf("mDNS: http://%s.local\n", kMdnsHostname);
+        }
+        if (strlen(FW_OTA_PASSWORD) > 0)
+        {
+            ArduinoOTA.setHostname(kMdnsHostname);
+            ArduinoOTA.setPassword(FW_OTA_PASSWORD);
+            ArduinoOTA.begin();
+            g_arduinoOtaEnabled = true;
+            Serial.println("ArduinoOTA: enabled");
+        }
+        else
+        {
+            Serial.println("ArduinoOTA: disabled; configure FW_OTA_PASSWORD in Secrets.h");
         }
         // NTP for brightness scheduling (UTC; offset applied locally).
         // configTzTime (not configTime) so libc owns the zone: it setenv()s TZ and
@@ -1105,6 +1034,8 @@ void loop()
     if (g_settingsDirtyMs != 0 && millis() - g_settingsDirtyMs >= 10000)
         flushSettingsIfDirty();
     g_web.handle();
+    if (g_arduinoOtaEnabled)
+        ArduinoOTA.handle();
 
     if (g_web.consumeRestartRequested())
     {
@@ -1118,9 +1049,7 @@ void loop()
     // pass: short-circuiting would leave the console's set while the web's was
     // true, so a console change made in the same pass as a web change would be
     // silently swallowed until the next unrelated web save.
-    const bool controlChanged = g_controlSettingsChanged;
-    g_controlSettingsChanged = false;
-    if (g_web.consumeSettingsChanged() | g_console.consumeSettingsChanged() | controlChanged)
+    if (g_web.consumeSettingsChanged() | g_console.consumeSettingsChanged())
     {
         // Someone is actively provisioning: restart the AP retry window below.
         // Deliberately keyed on a SETTINGS WRITE rather than on
@@ -1328,19 +1257,49 @@ void loop()
     // Both pressure signals, combined by max() rather than precedence -- see
     // utils/FetchCadence.h for why that distinction is load-bearing and for the
     // measurements behind each ladder's cap.
+    unsigned long baseIntervalMs = (unsigned long)g_settings.fetchIntervalSeconds * 1000UL;
+    if (g_settings.mode == TrackingMode::Area &&
+        g_settings.positionSource == PositionSource::FlightRadar24)
+    {
+        const double watchRadiusKm = std::max(g_settings.radiusKm,
+                                              std::max(0.1, g_settings.fr24WatchRadiusKm));
+        const double outerBandKm = std::min(watchRadiusKm,
+                                            std::max(g_settings.radiusKm, g_settings.fr24OuterBandKm));
+        const double innerBandKm = std::min(outerBandKm,
+                                            std::max(0.0, g_settings.fr24InnerBandKm));
+        baseIntervalMs = fr24ApproachIntervalMs(
+            g_lastFr24NearestDistanceKm, watchRadiusKm, outerBandKm, innerBandKm,
+            g_settings.fr24NoAircraftIntervalSeconds,
+            g_settings.fr24OuterBandIntervalSeconds,
+            g_settings.fr24MiddleBandIntervalSeconds,
+            g_settings.fr24InnerBandIntervalSeconds);
+    }
+
     const unsigned long intervalMs = fetchIntervalMs(
-        (unsigned long)g_settings.fetchIntervalSeconds * 1000UL,
+        baseIntervalMs,
         g_consecutiveFailures,
         g_consecutiveEmpty);
 
-    const unsigned long now = millis();
-    if (!g_firstFetchDone || (now - g_lastFetchMs >= intervalMs))
+    unsigned long now = millis();
+    if (g_fetchRunning && g_fetchDone)
+    {
+        g_fetchRunning = false;
+        applyFetchResult(std::move(g_fetchResult), g_fetchOk, g_fetchEnriched,
+                         g_fetchNearestDistanceKm, g_fetchFr24BandCounts,
+                         g_fetchFr24BandCountsValid);
+        // Interval counts from completion so a slow fetch cannot run back to back,
+        // but keep a pending "fetch now" request (0) from a settings change.
+        if (g_lastFetchMs != 0)
+            g_lastFetchMs = millis();
+        now = millis();
+    }
+    if (!g_fetchRunning && (!g_firstFetchDone || (now - g_lastFetchMs >= intervalMs)))
     {
         g_lastFetchMs = now;
         // Pairs every fetch outcome with the radio state that produced it, so a
         // failure can be read against RSSI/BSSID/channel instead of guessed at.
         RadioDiag::logSnapshot("pre-fetch");
-        doFetchAndRender();
+        startFetch();
     }
     else if (now - g_lastRenderMs >= 200)
     {

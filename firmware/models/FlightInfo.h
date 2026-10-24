@@ -21,6 +21,9 @@ struct FlightInfo
 
     // Aircraft
     String aircraft_code;
+    String aircraft_manufacturer;
+    String aircraft_model;
+    String aircraft_icon_class;
 
     // Human-friendly display strings
     String airline_display_name_full;

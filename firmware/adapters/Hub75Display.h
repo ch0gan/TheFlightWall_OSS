@@ -180,6 +180,7 @@ private:
         enum class Screen
         {
             Dots,
+            Blank,
             Clock,
             Fact
         };

@@ -98,3 +98,29 @@ inline unsigned long fetchIntervalMs(unsigned long baseMs, uint8_t failures, uin
     const unsigned long b = emptyLadder(baseMs, empties);
     return a > b ? a : b;
 }
+
+/**
+ * FR24 Area-mode polling interval from the nearest valid aircraft in its watch
+ * radius. A negative or NaN distance means no aircraft was found in that radius.
+ */
+inline unsigned long fr24ApproachIntervalMs(double nearestKm,
+                                            double watchRadiusKm,
+                                            double outerBandKm,
+                                            double innerBandKm,
+                                            uint32_t noAircraftSeconds,
+                                            uint32_t outerBandSeconds,
+                                            uint32_t middleBandSeconds,
+                                            uint32_t innerBandSeconds)
+{
+    const unsigned long noAircraftMs = (unsigned long)(noAircraftSeconds < 5 ? 5 : noAircraftSeconds) * 1000UL;
+    const unsigned long outerBandMs = (unsigned long)(outerBandSeconds < 5 ? 5 : outerBandSeconds) * 1000UL;
+    const unsigned long middleBandMs = (unsigned long)(middleBandSeconds < 5 ? 5 : middleBandSeconds) * 1000UL;
+    const unsigned long innerBandMs = (unsigned long)(innerBandSeconds < 5 ? 5 : innerBandSeconds) * 1000UL;
+    if (!(nearestKm >= 0.0) || nearestKm > watchRadiusKm)
+        return noAircraftMs;
+    if (nearestKm <= innerBandKm)
+        return innerBandMs;
+    if (nearestKm <= outerBandKm)
+        return middleBandMs;
+    return outerBandMs;
+}

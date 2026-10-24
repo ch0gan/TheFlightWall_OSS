@@ -18,6 +18,9 @@
 #ifndef FW_WIFI_PASSWORD
 #  define FW_WIFI_PASSWORD ""
 #endif
+#ifndef FW_OTA_PASSWORD
+#  define FW_OTA_PASSWORD ""
+#endif
 
 namespace WiFiConfiguration
 {

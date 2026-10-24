@@ -82,6 +82,7 @@ enum class LightSensorType : uint8_t
 struct DisplayLayout
 {
     bool showAirlineFlight = true; // "United UA123"
+    bool showLogo = true;          // airline logo tile (large cards)
     bool showRoute = true;         // "KSFO>KJFK"
     bool showAircraft = true;      // "B739"
     bool showAltitude = true;      // "FL350" / "12,500ft"
@@ -89,6 +90,8 @@ struct DisplayLayout
     bool showHeading = true;       // "HDG 094"
     bool showVerticalRate = true;  // "+1200fpm"
     bool showEta = true;           // "~1h05" / "LANDING"
+    bool showDistance = true;      // "Dst" + distance from the configured center
+    bool showProgressBar = true;   // route/trip progress bar along the bottom
     bool flightNumberOverVr = true;  // show the flight number in the vertical-rate slot
     // What to show when there are zero flights:
     //   "dots", "clock", "funfact", "clockfact" (default — alternates the two)
@@ -171,7 +174,15 @@ struct Settings
     TrackingMode mode = TrackingMode::Area;
     double centerLat = UserConfiguration::CENTER_LAT;
     double centerLon = UserConfiguration::CENTER_LON;
+    String distanceUnit = "km";
     double radiusKm = UserConfiguration::RADIUS_KM;
+    double fr24WatchRadiusKm = 20.0;
+    double fr24OuterBandKm = 10.0;
+    double fr24InnerBandKm = 5.0;
+    uint32_t fr24NoAircraftIntervalSeconds = 120;
+    uint32_t fr24OuterBandIntervalSeconds = 30;
+    uint32_t fr24MiddleBandIntervalSeconds = 15;
+    uint32_t fr24InnerBandIntervalSeconds = 10;
     bool autoLocateOnBoot = false; // set center from IP geolocation each boot
     std::vector<String> trackedFlights; // idents / callsigns / tails for Flights mode
 
@@ -180,6 +191,10 @@ struct Settings
     uint8_t textColorR = UserConfiguration::TEXT_COLOR_R;
     uint8_t textColorG = UserConfiguration::TEXT_COLOR_G;
     uint8_t textColorB = UserConfiguration::TEXT_COLOR_B;
+    // Filled part of the progress bar (and the ETA text over it).
+    uint8_t progressColorR = 0;
+    uint8_t progressColorG = 210;
+    uint8_t progressColorB = 90;
     uint8_t maxFlights = UserConfiguration::MAX_FLIGHTS; // length of the carousel, not what is on screen
     uint32_t cycleSeconds = TimingConfiguration::DISPLAY_CYCLE_SECONDS;
     uint32_t fetchIntervalSeconds = TimingConfiguration::FETCH_INTERVAL_SECONDS;

@@ -1,4 +1,5 @@
 #include "core/HttpJson.h"
+#include "core/ApiCallStats.h"
 #include "esp_heap_caps.h"
 
 bool HttpJson::getJson(const String &url, JsonDocument &doc,
@@ -38,6 +39,12 @@ bool HttpJson::getJson(const String &url, JsonDocument &doc,
     if (headerName && headerValue)
         http.addHeader(headerName, headerValue);
 
+    if (url.indexOf("api.adsbdb.com") >= 0)
+        ApiCallStats::record(ApiCallStats::Provider::Adsbdb);
+    else if (url.indexOf("hexdb.io") >= 0)
+        ApiCallStats::record(ApiCallStats::Provider::Hexdb);
+    else if (url.indexOf("aeroapi.flightaware.com") >= 0)
+        ApiCallStats::record(ApiCallStats::Provider::AeroApi);
     int code = http.GET();
     _lastStatus = code;
     if (code != 200)
