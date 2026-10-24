@@ -574,6 +574,8 @@ static void logHeap(const char *tag)
 static std::atomic<bool> g_fetchRunning{false};
 static std::atomic<bool> g_fetchDone{false};
 static std::vector<FlightInfo> g_fetchResult;
+static std::vector<StateVector> g_fetchRadarStates;
+static std::vector<StateVector> g_lastRadarStates;
 static bool g_fetchOk = false;
 static size_t g_fetchEnriched = 0;
 static double g_fetchNearestDistanceKm = NAN;
@@ -589,6 +591,7 @@ static void runFetch()
     bool ok = false;
     size_t enriched = g_fetcher->fetchFlights(flights, ok);
     g_fetchNearestDistanceKm = g_fetcher->nearestWatchDistanceKm();
+    g_fetchRadarStates = g_fetcher->radarStates();
     g_fetchFr24BandCounts = g_fetcher->lastFr24WatchBandCounts();
     g_fetchFr24BandCountsValid = g_fetcher->fr24WatchBandCountsValid();
     g_fetchResult = std::move(flights);
@@ -605,7 +608,7 @@ static void fetchTaskFn(void *)
 
 static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t enriched,
                              double nearestDistanceKm, WatchBandCounts fr24BandCounts,
-                             bool fr24BandCountsValid);
+                             bool fr24BandCountsValid, std::vector<StateVector> radarStates);
 
 static void startFetch()
 {
@@ -622,7 +625,7 @@ static void startFetch()
 
 static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t enriched,
                              double nearestDistanceKm, WatchBandCounts fr24BandCounts,
-                             bool fr24BandCountsValid)
+                             bool fr24BandCountsValid, std::vector<StateVector> radarStates)
 {
     g_lastFr24NearestDistanceKm = nearestDistanceKm;
     g_lastFr24BandCountsValid = ok && fr24BandCountsValid;
@@ -713,6 +716,7 @@ static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t en
     g_web.setSourceFallback(g_fetcher->lastSourceWasFallback());
 
     g_lastFlights = std::move(flights);
+    g_lastRadarStates = std::move(radarStates);
 
     // The device has now proved it can do its job: WiFi associated, the server
     // answered, flights are in hand. THAT is what cancels the bootloader's
@@ -1286,7 +1290,8 @@ void loop()
         g_fetchRunning = false;
         applyFetchResult(std::move(g_fetchResult), g_fetchOk, g_fetchEnriched,
                          g_fetchNearestDistanceKm, g_fetchFr24BandCounts,
-                         g_fetchFr24BandCountsValid);
+                         g_fetchFr24BandCountsValid, std::move(g_fetchRadarStates));
+            g_web.setRadarStates(&g_lastRadarStates);
         // Interval counts from completion so a slow fetch cannot run back to back,
         // but keep a pending "fetch now" request (0) from a settings change.
         if (g_lastFetchMs != 0)

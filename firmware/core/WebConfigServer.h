@@ -35,6 +35,7 @@ mode the captive-portal redirect therefore points at /setup, not /.
 #include <WebServer.h>
 #include <DNSServer.h>
 #include "models/FlightInfo.h"
+#include "models/StateVector.h"
 
 class WebConfigServer
 {
@@ -48,6 +49,7 @@ public:
     // We store a pointer to the long-lived global flights vector and serialize
     // it on demand in handleGetFlights(), rather than re-serializing every fetch.
     void setFlights(const std::vector<FlightInfo> *flights) { _flights = flights; }
+    void setRadarStates(const std::vector<StateVector> *states) { _radarStates = states; }
     // Note only. The flight COUNT is no longer pushed: it is derived from the
     // same vector /api/flights serialises, so the two cannot disagree.
     void setLastNote(const String &note);
@@ -131,6 +133,7 @@ private:
     bool _apMode = false;
     String _ip;
     const std::vector<FlightInfo> *_flights = nullptr;
+    const std::vector<StateVector> *_radarStates = nullptr;
     String _lastNote;
     bool _serverStale = false;
     String _activeSource;
@@ -162,6 +165,7 @@ private:
     void handlePostSettings();
     void handleGetStatus();
     void handleGetFlights();
+    void handleGetRadar();
     void handleGetLogo();
     void handleGetLogos();
     String buildFlightsJson() const;

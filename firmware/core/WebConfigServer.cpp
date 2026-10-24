@@ -86,6 +86,8 @@ void WebConfigServer::registerRoutes()
                { handleGetStatus(); });
     _server.on("/api/flights", HTTP_GET, [this]()
                { handleGetFlights(); });
+    _server.on("/api/radar", HTTP_GET, [this]()
+               { handleGetRadar(); });
     _server.on("/api/logo", HTTP_GET, [this]()
                { handleGetLogo(); });
     _server.on("/api/logos", HTTP_GET, [this]()
@@ -454,6 +456,70 @@ String WebConfigServer::buildFlightsJson() const
 void WebConfigServer::handleGetFlights()
 {
     _server.send(200, "application/json", buildFlightsJson());
+}
+
+void WebConfigServer::handleGetRadar()
+{
+    JsonDocument doc;
+    const bool areaMode = g_settings.mode == TrackingMode::Area;
+    const bool useRadarStates = areaMode &&
+                                g_settings.positionSource != PositionSource::FlightWallServer &&
+                                _radarStates;
+    const bool usesWatchRing = useRadarStates &&
+                               g_settings.positionSource == PositionSource::FlightRadar24;
+    const double displayRadiusKm = g_settings.radiusKm;
+    const double watchRadiusKm = areaMode &&
+                                         g_settings.positionSource == PositionSource::FlightRadar24
+                                     ? max(displayRadiusKm, g_settings.fr24WatchRadiusKm)
+                                     : displayRadiusKm;
+    doc["mode"] = areaMode ? "area" : "flights";
+    doc["source"] = _activeSource;
+    doc["centerLat"] = g_settings.centerLat;
+    doc["centerLon"] = g_settings.centerLon;
+    doc["displayRadiusKm"] = displayRadiusKm;
+    doc["watchRadiusKm"] = watchRadiusKm;
+    doc["outerBandKm"] = g_settings.fr24OuterBandKm;
+    doc["innerBandKm"] = g_settings.fr24InnerBandKm;
+    doc["distanceUnit"] = g_settings.distanceUnit;
+    doc["usesWatchRing"] = usesWatchRing;
+    JsonArray aircraft = doc["aircraft"].to<JsonArray>();
+
+    if (useRadarStates)
+    {
+        for (const StateVector &flight : *_radarStates)
+        {
+            if (!renderable(flight.lat) || !renderable(flight.lon))
+                continue;
+            JsonObject item = aircraft.add<JsonObject>();
+            item["ident"] = flight.callsign;
+            item["lat"] = flight.lat;
+            item["lon"] = flight.lon;
+            item["distanceKm"] = flight.distance_km;
+            if (renderable(flight.heading))
+                item["headingDeg"] = flight.heading;
+        }
+    }
+    else if (_flights)
+    {
+        for (const FlightInfo &flight : *_flights)
+        {
+            if (!renderable(flight.lat) || !renderable(flight.lon))
+                continue;
+            JsonObject item = aircraft.add<JsonObject>();
+            item["ident"] = flight.ident.length() ? flight.ident : flight.ident_icao;
+            item["lat"] = flight.lat;
+            item["lon"] = flight.lon;
+            item["distanceKm"] = flight.distance_km;
+            item["estimated"] = flight.position_estimated;
+            if (renderable(flight.heading_deg))
+                item["headingDeg"] = flight.heading_deg;
+        }
+    }
+
+    String out;
+    serializeJson(doc, out);
+    _server.sendHeader("Cache-Control", "no-store");
+    _server.send(200, "application/json", out);
 }
 
 void WebConfigServer::handleGetLogo()

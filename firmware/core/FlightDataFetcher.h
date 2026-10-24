@@ -61,6 +61,7 @@ public:
     // Nearest in-range candidate seen in the most recent state-vector fetch.
     // NaN means no eligible aircraft was found in the source query radius.
     double nearestWatchDistanceKm() const { return _nearestWatchDistanceKm; }
+    const std::vector<StateVector> &radarStates() const { return _radarStates; }
 
 private:
     // Wall-clock a single fetch cycle may spend on NETWORK enrichment before it stops
@@ -99,6 +100,7 @@ private:
     // FlightWallServer can't leave a previous cycle's stale flag stuck on.
     bool _lastStale = false;
     double _nearestWatchDistanceKm = NAN;
+    std::vector<StateVector> _radarStates;
     WatchBandCounts _lastFr24WatchBandCounts;
     bool _fr24WatchBandCountsValid = false;
     // "none" until a fetch succeeds, so the UI can say "unknown" rather than

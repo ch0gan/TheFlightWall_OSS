@@ -292,6 +292,7 @@ size_t FlightDataFetcher::fetchFlights(std::vector<FlightInfo> &outFlights, bool
     outFlights.clear();
     ok = false;
     _nearestWatchDistanceKm = NAN;
+    _radarStates.clear();
     _lastFr24WatchBandCounts = {};
     _fr24WatchBandCountsValid = false;
     _cycleStartMs = millis(); // starts the enrichment budget (see kEnrichBudgetMs)
@@ -518,8 +519,34 @@ size_t FlightDataFetcher::fetchAreaModeWith(BaseStateVectorFetcher *src,
             if (!isnan(s.distance_km) &&
                 (isnan(_nearestWatchDistanceKm) || s.distance_km < _nearestWatchDistanceKm))
                 _nearestWatchDistanceKm = s.distance_km;
+            if (!isnan(s.distance_km))
+            {
+                if (_radarStates.size() < 40)
+                    _radarStates.push_back(s);
+                else
+                {
+                    auto farthest = std::max_element(_radarStates.begin(), _radarStates.end(),
+                                                     [](const StateVector &a, const StateVector &b)
+                                                     { return a.distance_km < b.distance_km; });
+                    if (farthest != _radarStates.end() && s.distance_km < farthest->distance_km)
+                        *farthest = s;
+                }
+            }
             if (s.distance_km > g_settings.radiusKm)
                 continue; // watch-ring rows select cadence only, never display or enrich
+        }
+        else if (!isnan(s.distance_km))
+        {
+            if (_radarStates.size() < 40)
+                _radarStates.push_back(s);
+            else
+            {
+                auto farthest = std::max_element(_radarStates.begin(), _radarStates.end(),
+                                                 [](const StateVector &a, const StateVector &b)
+                                                 { return a.distance_km < b.distance_km; });
+                if (farthest != _radarStates.end() && s.distance_km < farthest->distance_km)
+                    *farthest = s;
+            }
         }
         candidates.push_back(s);
     }
