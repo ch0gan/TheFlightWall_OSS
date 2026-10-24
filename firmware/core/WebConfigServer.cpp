@@ -84,6 +84,8 @@ void WebConfigServer::registerRoutes()
                { handleGetStatus(); });
     _server.on("/api/flights", HTTP_GET, [this]()
                { handleGetFlights(); });
+    _server.on("/api/logo", HTTP_GET, [this]()
+               { handleGetLogo(); });
     _server.on("/api/geolocate", HTTP_GET, [this]()
                { handleGeolocate(); });
     _server.on("/api/wifiscan", HTTP_GET, [this]()
@@ -364,12 +366,17 @@ String WebConfigServer::buildFlightsJson() const
                            : (f.operator_iata.length() ? f.operator_iata
                               : (f.operator_icao.length() ? f.operator_icao : f.operator_code));
             o["aircraft"] = f.aircraft_code;
+            o["pinned"] = f.pinned;
             // The code the ignore list wants, separately from the display
             // name above, so the page can offer "ignore EJA" beside a flight
             // that is on the wall right now rather than asking the person to
             // work the code out from the name.
             if (f.operator_icao.length())
                 o["operatorIcao"] = f.operator_icao;
+            if (f.operator_iata.length())
+                o["operatorIata"] = f.operator_iata;
+            if (f.operator_code.length())
+                o["operatorCode"] = f.operator_code;
             // Reading code_icao alone blanked this list for any source that supplies only
             // IATA — which is every flight under Flightradar24, whose feed carries IATA
             // origin/destination inline and no ICAO at all. The UI renders these as
@@ -428,6 +435,63 @@ String WebConfigServer::buildFlightsJson() const
 void WebConfigServer::handleGetFlights()
 {
     _server.send(200, "application/json", buildFlightsJson());
+}
+
+void WebConfigServer::handleGetLogo()
+{
+    String operatorCode = _server.arg("operator");
+    operatorCode.toUpperCase();
+    bool validOperator = operatorCode.length() > 0 && operatorCode.length() <= 3;
+    for (size_t i = 0; validOperator && i < operatorCode.length(); ++i)
+    {
+        const char c = operatorCode[i];
+        validOperator = (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    }
+
+    const String kind = _server.arg("kind");
+    const bool cargo = _server.arg("cargo") == "1";
+    String candidates[3];
+    size_t candidateCount = 0;
+    if (kind == "heli")
+        candidates[candidateCount++] = "_HELI";
+    else if (kind == "private")
+        candidates[candidateCount++] = "_PRIVATE";
+    if (validOperator)
+        candidates[candidateCount++] = operatorCode;
+    if (cargo)
+        candidates[candidateCount++] = "_CARGO";
+
+    for (size_t i = 0; i < candidateCount; ++i)
+    {
+        File logo = LittleFS.open(String("/logos/") + candidates[i] + ".rgb565", "r");
+        if (!logo)
+            continue;
+
+        const size_t fileSize = logo.size();
+        uint8_t header[4];
+        if (fileSize < sizeof(header) || logo.read(header, sizeof(header)) != sizeof(header))
+        {
+            logo.close();
+            continue;
+        }
+
+        const uint16_t width = header[0] | (header[1] << 8);
+        const uint16_t height = header[2] | (header[3] << 8);
+        const size_t expectedSize = sizeof(header) + static_cast<size_t>(width) * height * 2;
+        if (width == 0 || height == 0 || width > 64 || height > 64 || fileSize != expectedSize)
+        {
+            logo.close();
+            continue;
+        }
+
+        logo.seek(0);
+        _server.sendHeader("Cache-Control", "public, max-age=86400");
+        _server.streamFile(logo, "application/octet-stream");
+        logo.close();
+        return;
+    }
+
+    _server.send(404, "text/plain", "logo not found");
 }
 
 void WebConfigServer::handleGeolocate()

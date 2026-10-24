@@ -11,6 +11,7 @@ REST API:
   POST /api/settings   -> apply + persist settings JSON (body)
   GET  /api/status     -> connection + device status JSON
   GET  /api/flights    -> currently displayed flights JSON (set by main loop)
+  GET  /api/logo       -> RGB565 airline/generic logo tile for the web preview
   GET  /api/wifiscan   -> nearby WiFi networks JSON
   POST /api/restart    -> reboot the device
 
@@ -149,6 +150,7 @@ private:
     void handlePostSettings();
     void handleGetStatus();
     void handleGetFlights();
+    void handleGetLogo();
     String buildFlightsJson() const;
     void handleGeolocate();
     void handleWifiScan();
