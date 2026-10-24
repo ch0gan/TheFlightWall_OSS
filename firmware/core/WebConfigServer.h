@@ -136,6 +136,13 @@ private:
 
     volatile bool _settingsChanged = false;
     volatile bool _restartRequested = false;
+    uint8_t _otaSignature[128] = {};
+    size_t _otaSignatureSize = 0;
+    char _otaTarget[32] = {};
+    size_t _otaTargetSize = 0;
+    size_t _otaFirmwareBytes = 0;
+    String _otaUploadError;
+    bool _otaFirmwareStarted = false;
 
     void registerRoutes();
     void handleGetSettings();
@@ -146,6 +153,8 @@ private:
     void handleGeolocate();
     void handleWifiScan();
     void handleRestart();
+      void handleOtaPost();
+      void handleOtaUpload();
     void handleRoot();
     void handleSetupPage(const char *banner);
     void appendScanList(String &html);

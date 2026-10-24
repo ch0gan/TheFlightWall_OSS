@@ -28,8 +28,10 @@ Run loop:
 #include <DNSServer.h>
 #include <LittleFS.h>
 #include <ESPmDNS.h>
+#include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 #include "core/Settings.h"
+#include "config/WiFiConfiguration.h"
 #include "core/AssetUpdater.h"
 #include "core/FirmwareUpdater.h"
 #include "core/HttpJson.h"
@@ -84,6 +86,7 @@ static const char *resetReasonText();
 
 static const char *kMdnsHostname = "flightwall"; // reachable at http://flightwall.local
 static bool g_apMode = false;
+static bool g_arduinoOtaEnabled = false;
 static unsigned long g_wifiDownSinceMs = 0; // for the runtime reconnect/AP-fallback watchdog
 // When the setup AP started, for the bounded-retry watchdog below. Zero means
 // "not counting" -- either we are not in AP mode, or there are no credentials to
@@ -918,6 +921,18 @@ void setup()
             MDNS.addService("http", "tcp", 80);
             Serial.printf("mDNS: http://%s.local\n", kMdnsHostname);
         }
+        if (strlen(FW_OTA_PASSWORD) > 0)
+        {
+            ArduinoOTA.setHostname(kMdnsHostname);
+            ArduinoOTA.setPassword(FW_OTA_PASSWORD);
+            ArduinoOTA.begin();
+            g_arduinoOtaEnabled = true;
+            Serial.println("ArduinoOTA: enabled");
+        }
+        else
+        {
+            Serial.println("ArduinoOTA: disabled; configure FW_OTA_PASSWORD in Secrets.h");
+        }
         // NTP for brightness scheduling (UTC; offset applied locally).
         // configTzTime (not configTime) so libc owns the zone: it setenv()s TZ and
         // tzset()s, after which localtime_r handles DST transitions itself. The old
@@ -988,6 +1003,8 @@ void loop()
     if (g_settingsDirtyMs != 0 && millis() - g_settingsDirtyMs >= 10000)
         flushSettingsIfDirty();
     g_web.handle();
+    if (g_arduinoOtaEnabled)
+        ArduinoOTA.handle();
 
     if (g_web.consumeRestartRequested())
     {

@@ -14,6 +14,7 @@ Purpose: Implementation of the on-device configuration & control web server.
 #include <LittleFS.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
+#include <Update.h>
 #include <algorithm>
 #include <vector>
 
@@ -89,6 +90,9 @@ void WebConfigServer::registerRoutes()
                { handleWifiScan(); });
     _server.on("/api/restart", HTTP_POST, [this]()
                { handleRestart(); });
+    _server.on("/api/ota", HTTP_POST, [this]()
+               { handleOtaPost(); }, [this]()
+               { handleOtaUpload(); });
     _server.on("/setup", HTTP_GET, [this]()
                { handleSetupGet(); });
     _server.on("/setup", HTTP_POST, [this]()
@@ -195,6 +199,7 @@ void WebConfigServer::handleGetStatus()
     // answerable without guessing. builtin = the copy flashed with the
     // firmware; server = one downloaded from the FlightWall server.
     doc["fwVersion"] = FirmwareUpdater::runningVersion();
+        doc["buildTarget"] = FirmwareUpdater::buildTarget();
     // True only in the window between an OTA reboot and the device proving it
     // works. Visible so a rollback is explicable rather than mysterious.
     doc["fwPendingVerify"] = FirmwareUpdater::awaitingValidation();
@@ -217,6 +222,125 @@ void WebConfigServer::handleGetStatus()
     String out;
     serializeJson(doc, out);
     _server.send(200, "application/json", out);
+}
+
+void WebConfigServer::handleOtaUpload()
+{
+    HTTPUpload &upload = _server.upload();
+    if (upload.status == UPLOAD_FILE_START)
+    {
+        if (upload.name == "signature")
+        {
+            _otaSignatureSize = 0;
+            _otaTargetSize = 0;
+            _otaFirmwareBytes = 0;
+            _otaTarget[0] = '\0';
+            _otaUploadError = "";
+            _otaFirmwareStarted = false;
+        }
+        else if (upload.name == "target")
+        {
+            _otaTargetSize = 0;
+            _otaTarget[0] = '\0';
+        }
+        else if (upload.name == "firmware")
+        {
+            String error;
+            if (_otaUploadError.length() == 0 && _otaSignatureSize > 0 && _otaTargetSize > 0 &&
+                FirmwareUpdater::beginLocalUpload(_otaSignature, _otaSignatureSize,
+                                                   String(_otaTarget), 0, error))
+                _otaFirmwareStarted = true;
+            else if (_otaUploadError.length() == 0)
+                _otaUploadError = error.length() ? error : "upload signature and target before firmware";
+        }
+        else
+        {
+            _otaUploadError = "unexpected upload field";
+        }
+    }
+    else if (upload.status == UPLOAD_FILE_WRITE)
+    {
+        if (upload.name == "signature" && _otaUploadError.length() == 0)
+        {
+            if (_otaSignatureSize + upload.currentSize > sizeof(_otaSignature))
+                _otaUploadError = "signature file is too large";
+            else
+            {
+                memcpy(_otaSignature + _otaSignatureSize, upload.buf, upload.currentSize);
+                _otaSignatureSize += upload.currentSize;
+            }
+        }
+        else if (upload.name == "target" && _otaUploadError.length() == 0)
+        {
+            if (_otaTargetSize + upload.currentSize >= sizeof(_otaTarget))
+                _otaUploadError = "target file is too large";
+            else
+            {
+                memcpy(_otaTarget + _otaTargetSize, upload.buf, upload.currentSize);
+                _otaTargetSize += upload.currentSize;
+                _otaTarget[_otaTargetSize] = '\0';
+            }
+        }
+        else if (upload.name == "firmware" && _otaFirmwareStarted &&
+                 FirmwareUpdater::writeLocalUpload(upload.buf, upload.currentSize) != upload.currentSize)
+        {
+            FirmwareUpdater::abortLocalUpload();
+            _otaFirmwareStarted = false;
+            _otaUploadError = String("flash write failed: ") + Update.errorString();
+        }
+        else if (upload.name == "firmware" && _otaFirmwareStarted)
+        {
+            _otaFirmwareBytes += upload.currentSize;
+        }
+    }
+    else if (upload.status == UPLOAD_FILE_END && upload.name == "firmware" &&
+             _otaFirmwareStarted && _otaFirmwareBytes == 0)
+    {
+        _otaUploadError = "firmware file is empty";
+    }
+    else if (upload.status == UPLOAD_FILE_ABORTED)
+    {
+        FirmwareUpdater::abortLocalUpload();
+        _otaFirmwareStarted = false;
+        _otaUploadError = "upload was interrupted";
+    }
+}
+
+void WebConfigServer::handleOtaPost()
+{
+    auto sendError = [this](int status, const String &error)
+    {
+        JsonDocument doc;
+        doc["ok"] = false;
+        doc["error"] = error;
+        String body;
+        serializeJson(doc, body);
+        _server.send(status, "application/json", body);
+    };
+
+    if (_otaUploadError.length())
+    {
+        FirmwareUpdater::abortLocalUpload();
+        sendError(400, _otaUploadError);
+        return;
+    }
+    if (!_otaFirmwareStarted || _otaFirmwareBytes == 0)
+    {
+        sendError(400, "firmware and signature files are required");
+        return;
+    }
+
+    FirmwareUpdater::ApplyResult result = FirmwareUpdater::finishLocalUpload();
+    _otaFirmwareStarted = false;
+    if (!result.ok)
+    {
+        sendError(400, result.error);
+        return;
+    }
+
+    _server.send(200, "application/json", "{\"ok\":true,\"restarting\":true}");
+    delay(300);
+    ESP.restart();
 }
 
 String WebConfigServer::buildFlightsJson() const

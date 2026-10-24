@@ -34,8 +34,36 @@ This is a high-level overview of the firmware that powers TheFlightWall on ESP32
 
 ### Build
 - PlatformIO project: see `platformio.ini` (uses `min_spiffs` partitions + a LittleFS filesystem).
-- Flash both artifacts: `pio run -t upload` (firmware) and `pio run -t uploadfs` (web UI).
+- USB recovery/first flash: `pio run -e esp32s3-usb -t upload --upload-port COMx`.
+- OTA firmware upload: use the `esp32s3` environment. The web UI is embedded in the firmware; `uploadfs` is not needed for web UI changes.
 - Reachable on the network at `http://flightwall.local` (mDNS) once connected.
+
+### OTA upload from PowerShell
+Run from this firmware directory. Enter the same password as `FW_OTA_PASSWORD` in your local,
+gitignored `config/Secrets.h`; the prompt does not echo it and the environment variable is
+cleared after the upload:
+
+```powershell
+$secure = Read-Host "FW_OTA_PASSWORD" -AsSecureString
+$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+try {
+  $env:FLIGHTWALL_OTA_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+  & 'C:\Users\Family\.platformio\penv\Scripts\platformio.exe' run -e esp32s3 -t upload
+} finally {
+  [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+  Remove-Item Env:FLIGHTWALL_OTA_PASSWORD -ErrorAction SilentlyContinue
+}
+```
+
+### PlatformIO Upload button
+The PlatformIO toolbar button runs the regular upload target; it cannot invoke the interactive
+password prompt above. To use the button for OTA, add a Windows **user environment variable**
+named `FLIGHTWALL_OTA_PASSWORD` with the same value as `FW_OTA_PASSWORD` in `config/Secrets.h`,
+then restart VS Code so PlatformIO inherits it. Select the `esp32s3` environment before clicking
+Upload. Keep the environment on `esp32s3-usb` when uploading over a cable instead.
+
+If the button reports `Authentication Failed`, confirm both password values match and that the
+firmware was last flashed with a non-empty `FW_OTA_PASSWORD`.
 
 ### Tests
 Three, and they run in different places.

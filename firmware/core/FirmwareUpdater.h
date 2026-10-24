@@ -97,4 +97,9 @@ namespace FirmwareUpdater
      * gets a value back is looking at an error every time.
      */
     ApplyResult apply(const String &serverUrl, const Available &a);
+    bool beginLocalUpload(const uint8_t *signature, size_t signatureSize,
+                          const String &target, size_t imageSize, String &error);
+    size_t writeLocalUpload(const uint8_t *data, size_t size);
+    ApplyResult finishLocalUpload();
+    void abortLocalUpload();
 }
