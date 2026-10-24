@@ -11,6 +11,7 @@ Purpose: Implementation of the on-device configuration & control web server.
 #include "adapters/GeoLocator.h"
 #include "utils/ServerJson.h" // renderable()
 #include "core/FirmwareUpdater.h"
+#include "core/ApiCallStats.h"
 
 #include <LittleFS.h>
 #include <WiFi.h>
@@ -206,6 +207,18 @@ void WebConfigServer::handleGetStatus()
     doc["fwVersion"] = FirmwareUpdater::runningVersion();
     doc["fwInstalledAt"] = FirmwareUpdater::installedAt();
     doc["buildTarget"] = FirmwareUpdater::buildTarget();
+    const ApiCallStats::Snapshot calls = ApiCallStats::snapshot();
+    doc["fr24Calls"] = calls.fr24;
+    doc["adsbdbCalls"] = calls.adsbdb;
+    doc["hexdbCalls"] = calls.hexdb;
+    doc["aeroApiCalls"] = calls.aeroApi;
+    doc["apiCallWindowSeconds"] = calls.windowSeconds;
+    doc["apiCallWindowFull"] = calls.fullDay;
+    doc["fr24WatchCountsValid"] = g_settings.positionSource == PositionSource::FlightRadar24 &&
+                                  g_settings.mode == TrackingMode::Area && _fr24WatchCountsValid;
+    doc["fr24WatchInnerCount"] = _fr24WatchInnerCount;
+    doc["fr24WatchMiddleCount"] = _fr24WatchMiddleCount;
+    doc["fr24WatchOuterCount"] = _fr24WatchOuterCount;
     // True only in the window between an OTA reboot and the device proving it
     // works. Visible so a rollback is explicable rather than mysterious.
     doc["fwPendingVerify"] = FirmwareUpdater::awaitingValidation();

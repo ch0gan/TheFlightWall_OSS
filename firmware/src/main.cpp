@@ -18,6 +18,7 @@ Run loop:
 #include <vector>
 #include <atomic>
 #include <utility>
+#include <algorithm>
 #include <time.h>
 #include <WiFi.h>
 #include "esp_netif.h"
@@ -31,6 +32,7 @@ Run loop:
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 #include "core/Settings.h"
+#include "core/ApiCallStats.h"
 #include "config/WiFiConfiguration.h"
 #include "core/AssetUpdater.h"
 #include "core/FirmwareUpdater.h"
@@ -574,12 +576,21 @@ static std::atomic<bool> g_fetchDone{false};
 static std::vector<FlightInfo> g_fetchResult;
 static bool g_fetchOk = false;
 static size_t g_fetchEnriched = 0;
+static double g_fetchNearestDistanceKm = NAN;
+static double g_lastFr24NearestDistanceKm = NAN;
+static WatchBandCounts g_fetchFr24BandCounts;
+static bool g_fetchFr24BandCountsValid = false;
+static WatchBandCounts g_lastFr24BandCounts;
+static bool g_lastFr24BandCountsValid = false;
 
 static void runFetch()
 {
     std::vector<FlightInfo> flights;
     bool ok = false;
     size_t enriched = g_fetcher->fetchFlights(flights, ok);
+    g_fetchNearestDistanceKm = g_fetcher->nearestWatchDistanceKm();
+    g_fetchFr24BandCounts = g_fetcher->lastFr24WatchBandCounts();
+    g_fetchFr24BandCountsValid = g_fetcher->fr24WatchBandCountsValid();
     g_fetchResult = std::move(flights);
     g_fetchOk = ok;
     g_fetchEnriched = enriched;
@@ -592,7 +603,9 @@ static void fetchTaskFn(void *)
     vTaskDelete(nullptr);
 }
 
-static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t enriched);
+static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t enriched,
+                             double nearestDistanceKm, WatchBandCounts fr24BandCounts,
+                             bool fr24BandCountsValid);
 
 static void startFetch()
 {
@@ -607,8 +620,18 @@ static void startFetch()
     }
 }
 
-static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t enriched)
+static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t enriched,
+                             double nearestDistanceKm, WatchBandCounts fr24BandCounts,
+                             bool fr24BandCountsValid)
 {
+    g_lastFr24NearestDistanceKm = nearestDistanceKm;
+    g_lastFr24BandCountsValid = ok && fr24BandCountsValid;
+    if (g_lastFr24BandCountsValid)
+        g_lastFr24BandCounts = fr24BandCounts;
+    g_web.setFr24WatchCounts(g_lastFr24BandCountsValid,
+                             g_lastFr24BandCounts.inner,
+                             g_lastFr24BandCounts.middle,
+                             g_lastFr24BandCounts.outer);
     if (!ok)
     {
         if (g_consecutiveFailures < 255)
@@ -636,7 +659,8 @@ static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t en
     // one mechanism relieving pressure was being discarded by the very responses that
     // signal it. A genuinely quiet sky is unaffected: nothing increments the counter
     // unless fetches are actually failing.
-    if (!flights.empty())
+    const bool foundInWatchRadius = nearestDistanceKm >= 0.0;
+    if (!flights.empty() || foundInWatchRadius)
         g_consecutiveFailures = 0;
     g_lastGoodFetchMs = millis();
 
@@ -648,9 +672,15 @@ static void applyFetchResult(std::vector<FlightInfo> flights, bool ok, size_t en
     // fetch had no such grace, so a throttled source blanked the wall instantly.
     if (flights.empty())
     {
-        if (g_consecutiveEmpty < 255)
+        if (foundInWatchRadius)
+        {
+            g_consecutiveEmpty = 0;
+        }
+        else if (g_consecutiveEmpty < 255)
+        {
             g_consecutiveEmpty++;
-        if (g_consecutiveEmpty < kEmptyConfirmCycles && !g_lastFlights.empty())
+        }
+        if (!foundInWatchRadius && g_consecutiveEmpty < kEmptyConfirmCycles && !g_lastFlights.empty())
         {
             Serial.printf("Empty result (%u of %u) — holding last flights\n",
                           (unsigned)g_consecutiveEmpty, (unsigned)kEmptyConfirmCycles);
@@ -874,6 +904,7 @@ static const char *resetReasonText()
 void setup()
 {
     Serial.begin(115200);
+    ApiCallStats::begin();
     delay(200);
 
     // First line out of the gate, before anything can fail and hide it.
@@ -1226,8 +1257,26 @@ void loop()
     // Both pressure signals, combined by max() rather than precedence -- see
     // utils/FetchCadence.h for why that distinction is load-bearing and for the
     // measurements behind each ladder's cap.
+    unsigned long baseIntervalMs = (unsigned long)g_settings.fetchIntervalSeconds * 1000UL;
+    if (g_settings.mode == TrackingMode::Area &&
+        g_settings.positionSource == PositionSource::FlightRadar24)
+    {
+        const double watchRadiusKm = std::max(g_settings.radiusKm,
+                                              std::max(0.1, g_settings.fr24WatchRadiusKm));
+        const double outerBandKm = std::min(watchRadiusKm,
+                                            std::max(g_settings.radiusKm, g_settings.fr24OuterBandKm));
+        const double innerBandKm = std::min(outerBandKm,
+                                            std::max(0.0, g_settings.fr24InnerBandKm));
+        baseIntervalMs = fr24ApproachIntervalMs(
+            g_lastFr24NearestDistanceKm, watchRadiusKm, outerBandKm, innerBandKm,
+            g_settings.fr24NoAircraftIntervalSeconds,
+            g_settings.fr24OuterBandIntervalSeconds,
+            g_settings.fr24MiddleBandIntervalSeconds,
+            g_settings.fr24InnerBandIntervalSeconds);
+    }
+
     const unsigned long intervalMs = fetchIntervalMs(
-        (unsigned long)g_settings.fetchIntervalSeconds * 1000UL,
+        baseIntervalMs,
         g_consecutiveFailures,
         g_consecutiveEmpty);
 
@@ -1235,7 +1284,9 @@ void loop()
     if (g_fetchRunning && g_fetchDone)
     {
         g_fetchRunning = false;
-        applyFetchResult(std::move(g_fetchResult), g_fetchOk, g_fetchEnriched);
+        applyFetchResult(std::move(g_fetchResult), g_fetchOk, g_fetchEnriched,
+                         g_fetchNearestDistanceKm, g_fetchFr24BandCounts,
+                         g_fetchFr24BandCountsValid);
         // Interval counts from completion so a slow fetch cannot run back to back,
         // but keep a pending "fetch now" request (0) from a settings change.
         if (g_lastFetchMs != 0)

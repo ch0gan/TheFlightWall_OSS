@@ -786,14 +786,25 @@ static String miniSpdMph(double kt, bool unit)
     return String((long)(kt * 1.15078 + 0.5)) + (unit ? "mph" : "");
 }
 
-// Distance from the configured center, in miles. Empty when unknown.
-static String miniDistMi(double km)
+// Distance from the configured center in the user's selected unit.
+static String miniDistance(double km)
 {
     if (!renderable(km))
         return String("");
-    const double mi = km * 0.621371;
-    char b[12];
-    snprintf(b, sizeof(b), mi < 10.0 ? "%.1fmi" : "%.0fmi", mi);
+    double distance = km;
+    const char *suffix = "km";
+    if (g_settings.distanceUnit == "mi")
+    {
+        distance *= 0.6213711922;
+        suffix = "mi";
+    }
+    else if (g_settings.distanceUnit == "nm")
+    {
+        distance *= 0.5399568035;
+        suffix = "nm";
+    }
+    char b[16];
+    snprintf(b, sizeof(b), distance < 10.0 ? "%.1f%s" : "%.0f%s", distance, suffix);
     return String(b);
 }
 
@@ -924,7 +935,7 @@ void Hub75Display::displayMiniCard(const FlightInfo &f)
 
     // "Dst" labels the center distance on the row below it, right-aligned to it.
     // Not on tracked cards: TRACKED owns that corner.
-    const String dist = g_settings.layout.showDistance ? miniDistMi(f.distance_km) : String();
+    const String dist = g_settings.layout.showDistance ? miniDistance(f.distance_km) : String();
     const bool showDist = dist.length() && (int)(route.length() + 1 + dist.length()) <= topCols;
     int topColsAirlineFit = topColsAirline;
     if (showDist && labelX < 0)

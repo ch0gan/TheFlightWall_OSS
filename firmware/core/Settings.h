@@ -174,7 +174,15 @@ struct Settings
     TrackingMode mode = TrackingMode::Area;
     double centerLat = UserConfiguration::CENTER_LAT;
     double centerLon = UserConfiguration::CENTER_LON;
+    String distanceUnit = "km";
     double radiusKm = UserConfiguration::RADIUS_KM;
+    double fr24WatchRadiusKm = 20.0;
+    double fr24OuterBandKm = 10.0;
+    double fr24InnerBandKm = 5.0;
+    uint32_t fr24NoAircraftIntervalSeconds = 120;
+    uint32_t fr24OuterBandIntervalSeconds = 30;
+    uint32_t fr24MiddleBandIntervalSeconds = 15;
+    uint32_t fr24InnerBandIntervalSeconds = 10;
     bool autoLocateOnBoot = false; // set center from IP geolocation each boot
     std::vector<String> trackedFlights; // idents / callsigns / tails for Flights mode
 

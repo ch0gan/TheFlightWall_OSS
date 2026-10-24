@@ -40,6 +40,7 @@ public:
                            double centerLon,
                            double radiusKm,
                            std::vector<StateVector> &outStateVectors) override;
+    WatchBandCounts lastWatchBandCounts() const override { return m_watchBandCounts; }
 
     // Search by callsign/flight number/tail, then read the live row from a tiny
     // feed.js box around the hit. Not radius-bound.
@@ -55,6 +56,7 @@ private:
     bool m_secureInit = false;
     // When set, parseFeedInto keeps only the feed row with this FR24 flight id.
     String m_wantId;
+    WatchBandCounts m_watchBandCounts;
     // Fill telemetry on `s` from the flight's detail record (best effort).
     void readDetail(const String &flightId, StateVector &s);
     WiFiClientSecure &secureClient();

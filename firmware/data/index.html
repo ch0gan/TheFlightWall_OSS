@@ -23,6 +23,14 @@
   .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:2px; }
   .row > div { flex:1; min-width:140px; }
   .checks { display:grid; grid-template-columns:1fr 1fr; gap:8px 14px; margin-top:8px; }
+  .fr24-cadence { width:100%; border-collapse:collapse; margin-top:8px; }
+  .fr24-cadence th { padding:7px 8px; color:var(--muted); font-size:12px; font-weight:600; text-align:left; }
+  .fr24-cadence th:last-child, .fr24-cadence td:last-child { width:130px; }
+  .fr24-cadence th:nth-child(2), .fr24-cadence td:nth-child(2) { width:130px; }
+  .fr24-range-count { color:var(--muted); text-align:right; font-variant-numeric:tabular-nums; }
+  .fr24-cadence td { padding:7px 8px; border-top:1px solid var(--line); font-size:13px; }
+  .fr24-cadence .cadence-input { display:flex; align-items:center; gap:7px; }
+  .fr24-cadence input { width:90px; padding:6px 8px; }
   .check { display:flex; align-items:center; gap:8px; font-size:14px; color:var(--fg); margin-top:10px; }
   .check input { width:auto; flex:none; }
   .check label { margin:0; font-size:14px; color:var(--fg); }
@@ -132,13 +140,34 @@
       <div class="row">
         <div><label>Center latitude</label><input id="centerLat" type="number" step="0.0001" /></div>
         <div><label>Center longitude</label><input id="centerLon" type="number" step="0.0001" /></div>
-        <div><label>Radius (km)</label><input id="radiusKm" type="number" step="0.5" /></div>
+        <div><label>Radius (<span id="radiusUnitLabel">km</span>)</label><input id="radiusKm" type="number" min="0.1" step="0.1" /></div>
+        <div><label>Distance units</label><select id="distanceUnit" onchange="changeDistanceUnit()"><option value="km">Kilometers (km)</option><option value="mi">Miles (mi)</option><option value="nm">Nautical miles (nm)</option></select></div>
       </div>
       <div class="bar" style="margin-top:10px">
         <button class="ghost" type="button" onclick="geolocate()">Auto-detect my location</button>
       </div>
       <small class="help" id="geoNote">Uses your IP (approximate). Review before saving.</small>
       <span class="check"><input type="checkbox" id="autoLocateOnBoot"><label>Auto-detect location on every boot</label></span>
+    </div>
+
+    <div id="fr24CadenceBox">
+    <div class="sec">FR24 approach polling</div>
+    <div class="row">
+      <div><label>FR24 watch radius (<span class="distanceUnitLabel">km</span>)</label><input id="fr24WatchRadiusKm" type="number" min="0.1" step="0.1" value="20" /></div>
+      <div><label>Outer band edge (<span class="distanceUnitLabel">km</span>)</label><input id="fr24OuterBandKm" type="number" min="0.1" step="0.1" value="10" /></div>
+      <div><label>Inner band edge (<span class="distanceUnitLabel">km</span>)</label><input id="fr24InnerBandKm" type="number" min="0.1" step="0.1" value="5" /></div>
+    </div>
+    <table class="fr24-cadence">
+      <thead><tr><th>Nearest aircraft</th><th>Check every</th><th>Total in range</th></tr></thead>
+      <tbody>
+        <tr><td id="fr24NoAircraftRange">No aircraft within 20 km</td><td><div class="cadence-input"><input id="fr24NoAircraftIntervalSeconds" type="number" min="5" value="120" /><span>sec</span></div></td><td id="fr24NoAircraftTotal" class="fr24-range-count">—</td></tr>
+        <tr><td id="fr24OuterBandRange">10–20 km</td><td><div class="cadence-input"><input id="fr24OuterBandIntervalSeconds" type="number" min="5" value="30" /><span>sec</span></div></td><td id="fr24OuterBandTotal" class="fr24-range-count">—</td></tr>
+        <tr><td id="fr24MiddleBandRange">5–10 km</td><td><div class="cadence-input"><input id="fr24MiddleBandIntervalSeconds" type="number" min="5" value="15" /><span>sec</span></div></td><td id="fr24MiddleBandTotal" class="fr24-range-count">—</td></tr>
+        <tr><td id="fr24InnerBandRange">0–5 km</td><td><div class="cadence-input"><input id="fr24InnerBandIntervalSeconds" type="number" min="5" value="10" /><span>sec</span></div></td><td id="fr24InnerBandTotal" class="fr24-range-count">—</td></tr>
+      </tbody>
+    </table>
+    <div id="apiCallStats" class="bar" style="margin-top:8px"><span class="pill">API calls: loading…</span></div>
+    <small class="help">FR24 Area mode only. Band totals count eligible aircraft in the latest feed; the no-aircraft fallback row has no range count. Aircraft outside the display radius affect polling, not the displayed flight list.</small>
     </div>
 
     <div id="flightsBox" class="hide">
@@ -244,7 +273,7 @@
     <input id="openSkyClientSecret" type="password" />
 
     <label>Position source (Area mode)</label>
-    <select id="positionSource" onchange="toggleServerUrl()">
+    <select id="positionSource" onchange="toggleServerUrl();toggleFr24Cadence()">
       <option value="opensky">OpenSky — official, needs key above (recommended)</option>
       <option value="fr24">Flightradar24 — unofficial, no key, routes included</option>
       <option value="adsblol">adsb.lol — free, no key, aircraft type + registration, no route</option>
@@ -497,6 +526,31 @@ function panelTruncate(text,columns){
 }
 
 function panelMetric(value){ return value!==undefined && value!==null && Number.isFinite(Number(value)); }
+let currentDistanceUnit='km';
+function distanceUnitFactor(unit){ return unit==='mi'?0.6213711922:unit==='nm'?0.5399568035:1; }
+function distanceUnitSuffix(){ return currentDistanceUnit; }
+function kmToSelectedDistance(km,unit=currentDistanceUnit){ return Number(km)*distanceUnitFactor(unit); }
+function selectedDistanceToKm(value,unit=currentDistanceUnit){ return Number(value)/distanceUnitFactor(unit); }
+function formatDistance(km,digits=1){
+  const distance=kmToSelectedDistance(km);
+  return `${Number(distance.toFixed(digits))}${distanceUnitSuffix()}`;
+}
+function updateDistanceUnitLabels(){
+  $('radiusUnitLabel').textContent=currentDistanceUnit;
+  document.querySelectorAll('.distanceUnitLabel').forEach(label=>{ label.textContent=currentDistanceUnit; });
+  updateFr24CadenceRanges();
+}
+function changeDistanceUnit(){
+  const nextUnit=$('distanceUnit').value;
+  if(nextUnit===currentDistanceUnit) return;
+  for(const id of ['radiusKm','fr24WatchRadiusKm','fr24OuterBandKm','fr24InnerBandKm']){
+    const input=$(id),value=Number(input.value);
+    if(Number.isFinite(value)) input.value=Number(kmToSelectedDistance(selectedDistanceToKm(value,currentDistanceUnit),nextUnit).toFixed(2));
+  }
+  currentDistanceUnit=nextUnit;
+  updateDistanceUnitLabels();
+  renderFlightCards(latestFlights);
+}
 function panelAltitude(ft,mini=false,unit=true){
   if(!panelMetric(ft)) return '';
   ft=Number(ft);
@@ -675,8 +729,9 @@ function renderPanelPreview(f,geometry){
     const name=panelTruncate(airline,nameColumns);
     const route=previewEnabled('showRoute')&& (f.origin||f.destination)
       ? (f.origin||'')+'-'+(f.destination||'') : '';
-    const distance=previewEnabled('showDistance')&&panelMetric(f.distanceKm)
-      ? (Number(f.distanceKm)*0.621371).toFixed(Number(f.distanceKm)*0.621371<10?1:0)+'mi' : '';
+    const distanceValue=panelMetric(f.distanceKm)?kmToSelectedDistance(f.distanceKm):NAN;
+    const distance=previewEnabled('showDistance')&&Number.isFinite(distanceValue)
+      ? formatDistance(f.distanceKm,distanceValue<10?1:0) : '';
     const bottomColumns=Math.max(1,Math.floor((w-2)/6));
     const distanceFits=distance&&(route.length+1+distance.length)<=columns;
     const routeFits=route&&distanceFits;
@@ -758,7 +813,7 @@ function renderFlightCards(flights){
   const geometry=panelGeometry();
   $('flights').innerHTML=flights.length?flights.map(x=>{
     const metrics=[];
-    if('distanceKm'in x) metrics.push(x.distanceKm.toFixed(1)+'km');
+    if('distanceKm'in x) metrics.push(formatDistance(x.distanceKm));
     if('altitudeFt'in x) metrics.push(x.altitudeFt+'ft');
     if('speedKt'in x) metrics.push(x.speedKt+'kt');
     if('headingDeg'in x) metrics.push('HDG'+x.headingDeg);
@@ -793,11 +848,34 @@ function toggleMode(){
   const flights = $('mode').value === 'flights';
   $('flightsBox').classList.toggle('hide', !flights);
   $('areaBox').classList.toggle('hide', flights);
+  toggleFr24Cadence();
 }
 
 function toggleServerUrl(){
   $('serverUrlBox').classList.toggle('hide', $('positionSource').value !== 'server');
 }
+
+function toggleFr24Cadence(){
+  $('fr24CadenceBox').classList.toggle('hide',
+    $('mode').value !== 'area' || $('positionSource').value !== 'fr24');
+  updateFr24CadenceRanges();
+}
+
+function updateFr24CadenceRanges(){
+  const displayRadius=Math.max(0,Number($('radiusKm').value)||0);
+  const watchRadius=Math.max(displayRadius,Number($('fr24WatchRadiusKm').value)||0);
+  const outerEdge=Math.min(watchRadius,Math.max(displayRadius,Number($('fr24OuterBandKm').value)||0));
+  const innerEdge=Math.min(outerEdge,Math.max(0,Number($('fr24InnerBandKm').value)||0));
+  const format=value=>Number.isInteger(value)?String(value):String(Number(value.toFixed(2)));
+  const unit=distanceUnitSuffix();
+  $('fr24NoAircraftRange').textContent=`No aircraft within ${format(watchRadius)} ${unit}`;
+  $('fr24OuterBandRange').textContent=`${format(outerEdge)}–${format(watchRadius)} ${unit}`;
+  $('fr24MiddleBandRange').textContent=`${format(innerEdge)}–${format(outerEdge)} ${unit}`;
+  $('fr24InnerBandRange').textContent=`0–${format(innerEdge)} ${unit}`;
+}
+
+for(const id of ['radiusKm','fr24WatchRadiusKm','fr24OuterBandKm','fr24InnerBandKm'])
+  $(id).addEventListener('input',updateFr24CadenceRanges);
 
 async function loadSettings(){
   const s = await (await fetch('/api/settings')).json();
@@ -822,7 +900,17 @@ async function loadSettings(){
   $('mode').value = s.tracking.mode;
   $('centerLat').value = s.tracking.centerLat;
   $('centerLon').value = s.tracking.centerLon;
-  $('radiusKm').value = s.tracking.radiusKm;
+  currentDistanceUnit=['km','mi','nm'].includes(s.tracking.distanceUnit)?s.tracking.distanceUnit:'km';
+  $('distanceUnit').value=currentDistanceUnit;
+  $('radiusKm').value=Number(kmToSelectedDistance(s.tracking.radiusKm).toFixed(2));
+  $('fr24WatchRadiusKm').value=Number(kmToSelectedDistance(s.tracking.fr24WatchRadiusKm ?? 20).toFixed(2));
+  $('fr24OuterBandKm').value=Number(kmToSelectedDistance(s.tracking.fr24OuterBandKm ?? 10).toFixed(2));
+  $('fr24InnerBandKm').value=Number(kmToSelectedDistance(s.tracking.fr24InnerBandKm ?? 5).toFixed(2));
+  updateDistanceUnitLabels();
+  $('fr24NoAircraftIntervalSeconds').value = s.tracking.fr24NoAircraftIntervalSeconds ?? 120;
+  $('fr24OuterBandIntervalSeconds').value = s.tracking.fr24OuterBandIntervalSeconds ?? 30;
+  $('fr24MiddleBandIntervalSeconds').value = s.tracking.fr24MiddleBandIntervalSeconds ?? 15;
+  $('fr24InnerBandIntervalSeconds').value = s.tracking.fr24InnerBandIntervalSeconds ?? 10;
   $('autoLocateOnBoot').checked = !!s.tracking.autoLocateOnBoot;
   $('trackedFlights').value = (s.tracking.trackedFlights || []).join('\n');
 
@@ -897,7 +985,15 @@ function collect(){
     tracking:{
       mode:$('mode').value,
       centerLat:parseFloat($('centerLat').value), centerLon:parseFloat($('centerLon').value),
-      radiusKm:parseFloat($('radiusKm').value),
+      distanceUnit:currentDistanceUnit,
+      radiusKm:selectedDistanceToKm($('radiusKm').value),
+      fr24WatchRadiusKm:selectedDistanceToKm($('fr24WatchRadiusKm').value),
+      fr24OuterBandKm:selectedDistanceToKm($('fr24OuterBandKm').value),
+      fr24InnerBandKm:selectedDistanceToKm($('fr24InnerBandKm').value),
+      fr24NoAircraftIntervalSeconds:+$('fr24NoAircraftIntervalSeconds').value,
+      fr24OuterBandIntervalSeconds:+$('fr24OuterBandIntervalSeconds').value,
+      fr24MiddleBandIntervalSeconds:+$('fr24MiddleBandIntervalSeconds').value,
+      fr24InnerBandIntervalSeconds:+$('fr24InnerBandIntervalSeconds').value,
       autoLocateOnBoot:$('autoLocateOnBoot').checked,
       trackedFlights:lines($('trackedFlights').value)
     },
@@ -1051,6 +1147,23 @@ async function scanWifi(){
         ? `<span class="pill off">panel dark${s.panelOff ? ' — button off' : ''}</span>` : '')+
       ('manualBrightness' in s && s.manualBrightness >= 0
         ? `<span class="pill">manual brightness ${s.manualBrightness}</span>` : '');
+    if('fr24WatchCountsValid' in s){
+      $('fr24NoAircraftTotal').textContent='—';
+      $('fr24OuterBandTotal').textContent=s.fr24WatchCountsValid?String(s.fr24WatchOuterCount):'—';
+      $('fr24MiddleBandTotal').textContent=s.fr24WatchCountsValid?String(s.fr24WatchMiddleCount):'—';
+      $('fr24InnerBandTotal').textContent=s.fr24WatchCountsValid?String(s.fr24WatchInnerCount):'—';
+    }
+    if('fr24Calls' in s){
+      const elapsed=Number(s.apiCallWindowSeconds)||0;
+      const hours=Math.floor(elapsed/3600),minutes=Math.floor((elapsed%3600)/60);
+      const windowLabel=s.apiCallWindowFull?'last 24h':`since boot ${hours}h ${minutes}m`;
+      $('apiCallStats').innerHTML=
+        `<span class="pill">API calls · ${windowLabel}</span>`+
+        `<span class="pill">FR24 ${s.fr24Calls}</span>`+
+        `<span class="pill">ADSBDB ${s.adsbdbCalls}</span>`+
+        `<span class="pill">HexDB ${s.hexdbCalls}</span>`+
+        `<span class="pill">AeroAPI ${s.aeroApiCalls}</span>`;
+    }
     if('fwVersion' in s){
       const installedAt=Number(s.fwInstalledAt);
       const installedDate=Number.isFinite(installedAt)&&installedAt>0

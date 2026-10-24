@@ -291,6 +291,9 @@ size_t FlightDataFetcher::fetchFlights(std::vector<FlightInfo> &outFlights, bool
     std::vector<StateVector> outStates;
     outFlights.clear();
     ok = false;
+    _nearestWatchDistanceKm = NAN;
+    _lastFr24WatchBandCounts = {};
+    _fr24WatchBandCountsValid = false;
     _cycleStartMs = millis(); // starts the enrichment budget (see kEnrichBudgetMs)
     g_airportLookupsThisCycle = 0;
 
@@ -395,6 +398,7 @@ size_t FlightDataFetcher::fetchServerMode(std::vector<StateVector> &outStates,
     // know whether reaching it was the plan or a degradation.
     _lastSourceFallback = true;
     return fetchAreaModeWith(_adsbLolState ? _adsbLolState : _openSkyState,
+                             g_settings.radiusKm,
                              outStates, outFlights, ok);
 }
 
@@ -403,7 +407,11 @@ size_t FlightDataFetcher::fetchAreaMode(std::vector<StateVector> &outStates,
                                         bool &ok)
 {
     _lastSourceFallback = false;
-    return fetchAreaModeWith(activeStateFetcher(), outStates, outFlights, ok);
+    BaseStateVectorFetcher *src = activeStateFetcher();
+    const double sourceRadiusKm = src == _fr24State
+        ? std::max(g_settings.radiusKm, g_settings.fr24WatchRadiusKm)
+        : g_settings.radiusKm;
+    return fetchAreaModeWith(src, sourceRadiusKm, outStates, outFlights, ok);
 }
 
 /**
@@ -460,6 +468,7 @@ void FlightDataFetcher::resolveAirport(const String &iata, AirportInfo &out)
 }
 
 size_t FlightDataFetcher::fetchAreaModeWith(BaseStateVectorFetcher *src,
+                                            double sourceRadiusKm,
                                             std::vector<StateVector> &outStates,
                                             std::vector<FlightInfo> &outFlights,
                                             bool &ok)
@@ -467,7 +476,7 @@ size_t FlightDataFetcher::fetchAreaModeWith(BaseStateVectorFetcher *src,
     if (!src->fetchStateVectors(
             g_settings.centerLat,
             g_settings.centerLon,
-            g_settings.radiusKm,
+            sourceRadiusKm,
             outStates))
     {
         // The state fetch itself failed (network/API). Report it so the caller can
@@ -484,6 +493,12 @@ size_t FlightDataFetcher::fetchAreaModeWith(BaseStateVectorFetcher *src,
     // configured fetcher, and fetchServerMode's fallback with adsb.lol -- which
     // is the case worth seeing, because the settings still say "server".
     _lastSource = sourceNameOf(src);
+    const bool adaptiveFr24 = src == _fr24State && g_settings.mode == TrackingMode::Area;
+    if (adaptiveFr24)
+    {
+        _lastFr24WatchBandCounts = src->lastWatchBandCounts();
+        _fr24WatchBandCountsValid = true;
+    }
 
     // Pre-filter state vectors by on-ground and altitude band before enrichment.
     std::vector<StateVector> candidates;
@@ -498,6 +513,14 @@ size_t FlightDataFetcher::fetchAreaModeWith(BaseStateVectorFetcher *src,
         double altFt = isnan(altM) ? NAN : altM * kMetersToFeet;
         if (!Filters::altitudeInBand(altFt, g_settings.filters.minAltitudeFt, g_settings.filters.maxAltitudeFt))
             continue;
+        if (adaptiveFr24)
+        {
+            if (!isnan(s.distance_km) &&
+                (isnan(_nearestWatchDistanceKm) || s.distance_km < _nearestWatchDistanceKm))
+                _nearestWatchDistanceKm = s.distance_km;
+            if (s.distance_km > g_settings.radiusKm)
+                continue; // watch-ring rows select cadence only, never display or enrich
+        }
         candidates.push_back(s);
     }
 

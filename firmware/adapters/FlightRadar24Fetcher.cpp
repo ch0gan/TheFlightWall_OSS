@@ -23,8 +23,11 @@ feed.js row layout (index -> field), as of this writing:
 The object also has scalar keys "full_count" and "version" that are NOT flights.
 */
 #include "adapters/FlightRadar24Fetcher.h"
+#include "core/ApiCallStats.h"
+#include "core/Filters.h"
 #include "core/Settings.h"
 #include "utils/GeoUtils.h"
+#include <algorithm>
 #include <esp_heap_caps.h>
 
 // ArduinoJson allocator that puts the whole-body feed.js document in PSRAM.
@@ -85,6 +88,7 @@ bool FlightRadar24Fetcher::fetchStateVectors(double centerLat,
                                              double radiusKm,
                                              std::vector<StateVector> &outStateVectors)
 {
+    m_watchBandCounts = {};
     double latMin, latMax, lonMin, lonMax;
     centeredBoundingBox(centerLat, centerLon, radiusKm, latMin, latMax, lonMin, lonMax);
 
@@ -120,6 +124,7 @@ bool FlightRadar24Fetcher::fetchStateVectors(double centerLat,
     http.addHeader("Origin", "https://www.flightradar24.com");
     http.addHeader("Referer", "https://www.flightradar24.com/");
 
+    ApiCallStats::record(ApiCallStats::Provider::FlightRadar24);
     int code = http.GET();
     if (code != 200)
     {
@@ -175,6 +180,7 @@ bool FlightRadar24Fetcher::fetchStateVectors(double centerLat,
     catch (...)
     {
         outStateVectors.clear();
+        m_watchBandCounts = {};
         Serial.println("FlightRadar24Fetcher: parse aborted (low memory)");
     }
 
@@ -222,6 +228,7 @@ bool FlightRadar24Fetcher::fetchByIdent(const String &ident,
     http.addHeader("Accept", "application/json");
     http.addHeader("Origin", "https://www.flightradar24.com");
     http.addHeader("Referer", "https://www.flightradar24.com/");
+    ApiCallStats::record(ApiCallStats::Provider::FlightRadar24);
     int code = http.GET();
     if (code != 200)
     {
@@ -325,6 +332,7 @@ void FlightRadar24Fetcher::readDetail(const String &flightId, StateVector &s)
     http.addHeader("Accept", "application/json");
     http.addHeader("Origin", "https://www.flightradar24.com");
     http.addHeader("Referer", "https://www.flightradar24.com/");
+    ApiCallStats::record(ApiCallStats::Provider::FlightRadar24);
     int code = http.GET();
     if (code != 200)
     {
@@ -450,6 +458,26 @@ void FlightRadar24Fetcher::parseFeedInto(JsonDocument &doc, double centerLat,
         s.callsign = a[16].isNull() ? String("") : String(a[16].as<const char *>());
         s.callsign.trim();
 
+        // Count every display-eligible aircraft before the 40-row return cap so
+        // the web UI reports actual band totals rather than only the chosen rows.
+        const double altM = !isnan(s.geo_altitude) ? s.geo_altitude : s.baro_altitude;
+        const double altFt = isnan(altM) ? NAN : altM * 3.28084;
+        const bool eligible = s.callsign.length() > 0 &&
+                              !(g_settings.filters.excludeOnGround && s.on_ground) &&
+                              Filters::altitudeInBand(altFt, g_settings.filters.minAltitudeFt,
+                                                     g_settings.filters.maxAltitudeFt);
+        if (eligible)
+        {
+            const double outerEdge = min(radiusKm, max(g_settings.radiusKm, g_settings.fr24OuterBandKm));
+            const double innerEdge = min(outerEdge, max(0.0, g_settings.fr24InnerBandKm));
+            if (s.distance_km <= innerEdge)
+                ++m_watchBandCounts.inner;
+            else if (s.distance_km <= outerEdge)
+                ++m_watchBandCounts.middle;
+            else
+                ++m_watchBandCounts.outer;
+        }
+
         // ---- Inline enrichment: the payoff of using FR24 as the source ----
         // These come free in the same response. A route here lets Area mode skip
         // adsbdb entirely (hasInlineRoute()); type/airline ride along
@@ -468,8 +496,18 @@ void FlightRadar24Fetcher::parseFeedInto(JsonDocument &doc, double centerLat,
 
         s.bearing_deg = computeBearingDeg(centerLat, centerLon, s.lat, s.lon);
 
-        out.push_back(s);
-        if (out.size() >= 40) // same safety cap as OpenSky's parser
-            break;
+        // Keep the nearest 40, not the first 40 in FR24's feed order. A wider
+        // adaptive watch radius must not let distant traffic crowd out aircraft
+        // that are about to enter the configured display radius.
+        auto position = std::lower_bound(out.begin(), out.end(), s.distance_km,
+                                         [](const StateVector &item, double distance)
+                                         { return item.distance_km < distance; });
+        if (out.size() < 40)
+            out.insert(position, s);
+        else if (position != out.end())
+        {
+            out.insert(position, s);
+            out.pop_back();
+        }
     }
 }

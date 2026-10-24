@@ -55,6 +55,12 @@ public:
     /** True when the last fetch used a FALLBACK rather than the configured
      *  source -- i.e. server mode degraded to adsb.lol for that cycle. */
     bool lastSourceWasFallback() const { return _lastSourceFallback; }
+    WatchBandCounts lastFr24WatchBandCounts() const { return _lastFr24WatchBandCounts; }
+    bool fr24WatchBandCountsValid() const { return _fr24WatchBandCountsValid; }
+
+    // Nearest in-range candidate seen in the most recent state-vector fetch.
+    // NaN means no eligible aircraft was found in the source query radius.
+    double nearestWatchDistanceKm() const { return _nearestWatchDistanceKm; }
 
 private:
     // Wall-clock a single fetch cycle may spend on NETWORK enrichment before it stops
@@ -92,6 +98,9 @@ private:
     // by a successful, stale-flagged server response — so switching away from
     // FlightWallServer can't leave a previous cycle's stale flag stuck on.
     bool _lastStale = false;
+    double _nearestWatchDistanceKm = NAN;
+    WatchBandCounts _lastFr24WatchBandCounts;
+    bool _fr24WatchBandCountsValid = false;
     // "none" until a fetch succeeds, so the UI can say "unknown" rather than
     // assert a source the device has not actually used yet.
     const char *_lastSource = "none";
@@ -172,6 +181,7 @@ private:
     // one cycle without mutating g_settings.positionSource. fetchAreaMode itself
     // is now just `return fetchAreaModeWith(activeStateFetcher(), ...);`.
     size_t fetchAreaModeWith(BaseStateVectorFetcher *src,
+                             double sourceRadiusKm,
                              std::vector<StateVector> &outStates,
                              std::vector<FlightInfo> &outFlights,
                              bool &ok);

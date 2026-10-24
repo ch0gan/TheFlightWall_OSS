@@ -63,6 +63,13 @@ public:
      *  FlightDataFetcher::lastActiveSource() for why it is not `positionSource`. */
     void setActiveSource(const String &src) { _activeSource = src; }
     void setSourceFallback(bool f) { _sourceFallback = f; }
+    void setFr24WatchCounts(bool valid, uint32_t inner, uint32_t middle, uint32_t outer)
+    {
+      _fr24WatchCountsValid = valid;
+      _fr24WatchInnerCount = inner;
+      _fr24WatchMiddleCount = middle;
+      _fr24WatchOuterCount = outer;
+    }
 
     // Latest ambient light reading, surfaced in /api/status for calibration.
     // The RESOLVED panel state, after every override has been folded in.
@@ -128,6 +135,10 @@ private:
     bool _serverStale = false;
     String _activeSource;
     bool _sourceFallback = false;
+    bool _fr24WatchCountsValid = false;
+    uint32_t _fr24WatchInnerCount = 0;
+    uint32_t _fr24WatchMiddleCount = 0;
+    uint32_t _fr24WatchOuterCount = 0;
     int _lightLevel = -1;
     bool _lightDark = false;
     String _lastOtaError;

@@ -244,7 +244,15 @@ String Settings::serialize(bool redactSecrets) const
     track["mode"] = (mode == TrackingMode::Flights) ? "flights" : "area";
     track["centerLat"] = centerLat;
     track["centerLon"] = centerLon;
+    track["distanceUnit"] = distanceUnit;
     track["radiusKm"] = radiusKm;
+    track["fr24WatchRadiusKm"] = fr24WatchRadiusKm;
+    track["fr24OuterBandKm"] = fr24OuterBandKm;
+    track["fr24InnerBandKm"] = fr24InnerBandKm;
+    track["fr24NoAircraftIntervalSeconds"] = fr24NoAircraftIntervalSeconds;
+    track["fr24OuterBandIntervalSeconds"] = fr24OuterBandIntervalSeconds;
+    track["fr24MiddleBandIntervalSeconds"] = fr24MiddleBandIntervalSeconds;
+    track["fr24InnerBandIntervalSeconds"] = fr24InnerBandIntervalSeconds;
     track["autoLocateOnBoot"] = autoLocateOnBoot;
     JsonArray flights = track.createNestedArray("trackedFlights");
     for (const auto &id : trackedFlights)
@@ -406,8 +414,28 @@ bool Settings::fromJson(const String &in)
             centerLat = track["centerLat"].as<double>();
         if (track.containsKey("centerLon"))
             centerLon = track["centerLon"].as<double>();
+        if (track.containsKey("distanceUnit"))
+        {
+            const String unit = track["distanceUnit"].as<String>();
+            if (unit == "km" || unit == "mi" || unit == "nm")
+                distanceUnit = unit;
+        }
         if (track.containsKey("radiusKm"))
             radiusKm = track["radiusKm"].as<double>();
+        if (track.containsKey("fr24WatchRadiusKm"))
+            fr24WatchRadiusKm = track["fr24WatchRadiusKm"].as<double>();
+        if (track.containsKey("fr24OuterBandKm"))
+            fr24OuterBandKm = track["fr24OuterBandKm"].as<double>();
+        if (track.containsKey("fr24InnerBandKm"))
+            fr24InnerBandKm = track["fr24InnerBandKm"].as<double>();
+        if (track.containsKey("fr24NoAircraftIntervalSeconds"))
+            fr24NoAircraftIntervalSeconds = track["fr24NoAircraftIntervalSeconds"].as<uint32_t>();
+        if (track.containsKey("fr24OuterBandIntervalSeconds"))
+            fr24OuterBandIntervalSeconds = track["fr24OuterBandIntervalSeconds"].as<uint32_t>();
+        if (track.containsKey("fr24MiddleBandIntervalSeconds"))
+            fr24MiddleBandIntervalSeconds = track["fr24MiddleBandIntervalSeconds"].as<uint32_t>();
+        if (track.containsKey("fr24InnerBandIntervalSeconds"))
+            fr24InnerBandIntervalSeconds = track["fr24InnerBandIntervalSeconds"].as<uint32_t>();
         if (track.containsKey("autoLocateOnBoot"))
             autoLocateOnBoot = track["autoLocateOnBoot"].as<bool>();
         if (track.containsKey("trackedFlights"))
