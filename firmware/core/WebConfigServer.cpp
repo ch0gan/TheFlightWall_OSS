@@ -199,7 +199,8 @@ void WebConfigServer::handleGetStatus()
     // answerable without guessing. builtin = the copy flashed with the
     // firmware; server = one downloaded from the FlightWall server.
     doc["fwVersion"] = FirmwareUpdater::runningVersion();
-        doc["buildTarget"] = FirmwareUpdater::buildTarget();
+    doc["fwInstalledAt"] = FirmwareUpdater::installedAt();
+    doc["buildTarget"] = FirmwareUpdater::buildTarget();
     // True only in the window between an OTA reboot and the device proving it
     // works. Visible so a rollback is explicable rather than mysterious.
     doc["fwPendingVerify"] = FirmwareUpdater::awaitingValidation();

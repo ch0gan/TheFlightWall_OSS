@@ -31,6 +31,9 @@ namespace FirmwareUpdater
     /** What this build is, from git via tools/inject_version.py. */
     const char *runningVersion();
 
+    /** UTC Unix timestamp when the running OTA image passed validation, or 0. */
+    uint64_t installedAt();
+
     /**
      * Tell the bootloader the running image works, cancelling the rollback it
      * would otherwise perform on the next reboot.

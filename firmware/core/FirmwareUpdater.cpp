@@ -2,6 +2,7 @@
 #include "config/FirmwareSigningKey.h"
 
 #include <HTTPClient.h>
+#include <Preferences.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <Update.h>
@@ -9,6 +10,7 @@
 #include <mbedtls/base64.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/sha256.h>
+#include <time.h>
 
 #ifndef FW_VERSION
 #define FW_VERSION "unknown"
@@ -118,6 +120,27 @@ namespace
         }
         return true;
     }
+
+    void recordInstallDate(bool newlyValidated)
+    {
+        Preferences prefs;
+        if (!prefs.begin("fwmeta", false))
+            return;
+
+        if (newlyValidated && !prefs.getBool("date_pending", false))
+            prefs.putBool("date_pending", true);
+
+        if (prefs.getBool("date_pending", false))
+        {
+            const time_t now = time(nullptr);
+            if (now >= 1700000000)
+            {
+                prefs.putULong64("installed_at", static_cast<uint64_t>(now));
+                prefs.remove("date_pending");
+            }
+        }
+        prefs.end();
+    }
 }
 
 namespace FirmwareUpdater
@@ -125,6 +148,16 @@ namespace FirmwareUpdater
     const char *runningVersion()
     {
         return FW_VERSION;
+    }
+
+    uint64_t installedAt()
+    {
+        Preferences prefs;
+        if (!prefs.begin("fwmeta", true))
+            return 0;
+        const uint64_t timestamp = prefs.getULong64("installed_at", 0);
+        prefs.end();
+        return timestamp;
     }
 
     bool awaitingValidation()
@@ -139,9 +172,15 @@ namespace FirmwareUpdater
     void markRunningImageValid()
     {
         if (!awaitingValidation())
+        {
+            recordInstallDate(false);
             return;
+        }
         if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK)
+        {
             Serial.println("[ota] running image marked valid; rollback cancelled");
+            recordInstallDate(true);
+        }
         else
             Serial.println("[ota] could not mark the image valid -- it will roll back");
     }
