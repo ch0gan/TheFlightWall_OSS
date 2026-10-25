@@ -33,8 +33,12 @@
   .fr24-cadence input { width:90px; padding:6px 8px; }
   .check { display:flex; align-items:center; gap:8px; font-size:14px; color:var(--fg); margin-top:10px; }
   .check input { width:auto; flex:none; }
+  .check input[type=color] { width:42px; height:30px; padding:2px; }
   .check label { margin:0; font-size:14px; color:var(--fg); }
   .checks .check { margin-top:0; }
+  .radar-colors { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px 14px; margin-top:10px; }
+  .radar-colors label { margin:0 0 4px; font-size:12px; color:var(--muted); }
+  .radar-colors input[type=color] { width:100%; height:38px; padding:3px; background:#0e1421; border:1px solid var(--line); border-radius:6px; }
   button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 14px; font-size:14px; cursor:pointer; }
   button.ghost { background:transparent; border:1px solid var(--line); color:var(--fg); }
   button.warn { background:var(--warn); }
@@ -73,8 +77,11 @@
   .panel-text.panel-eta { color:var(--panel-progress); }
   .panel-progress { position:absolute; left:1%; right:1%; bottom:2%; height:var(--progress-height); background:#2a2a2a; }
   .panel-progress-fill { height:100%; background:var(--panel-progress); }
-  .panel-mini-top { position:absolute; top:6.25%; left:1.5%; right:1.5%; height:var(--mini-top-height); display:flex; gap:2%; }
-  .panel-mini-mark { width:var(--mini-logo-width); height:100%; }
+  .panel-mini-top { position:absolute; top:6.25%; left:1.5625%; right:1.5625%; height:var(--mini-top-height); display:flex; gap:3.2258%; }
+  .panel-mini-top.radar-on .panel-mini-copy { flex:none; width:41.1%; }
+  .panel-mini-top.radar-on.no-logo .panel-mini-copy { width:67%; }
+  .panel-mini-radar { position:absolute; top:1.5625%; right:.78125%; width:28.125%; height:56.25%; image-rendering:pixelated; background:#000; outline:1px solid #707983; outline-offset:-1px; }
+  .panel-mini-mark { position:relative; top:var(--mini-logo-nudge); width:var(--mini-logo-width); height:100%; flex:0 0 var(--mini-logo-width); }
   .panel-mini-copy { display:flex; min-width:0; flex:1; flex-direction:column; justify-content:space-between; overflow:hidden; }
   .panel-mini-copy .panel-text { flex:none; }
   .panel-mini-airline.tracked-name { flex:none; }
@@ -256,6 +263,17 @@
       <span class="check"><input type="checkbox" id="flightNumberOverVr"><label>Flight # (instead of vertical rate)</label></span>
     </div>
     <small class="help">Only as many lines as physically fit on the panel are drawn. ETA needs the FlightWall server position source above (or a server flight with a resolved destination) — it renders blank otherwise, same as an unfilled route.</small>
+
+    <div class="sec">LED Radar</div>
+    <span class="check"><input type="checkbox" id="showRadar"><label>Show radar on mini cards</label></span>
+    <div class="radar-colors">
+      <div><label for="radarColor">Rings</label><input id="radarColor" type="color" aria-label="Radar ring color" /></div>
+      <div><label for="radarActiveColor">Active aircraft</label><input id="radarActiveColor" type="color" aria-label="Active aircraft color" /></div>
+      <div><label for="radarAircraftColor">Other aircraft</label><input id="radarAircraftColor" type="color" aria-label="Other aircraft color" /></div>
+      <div><label for="radarCenterColor">Center point</label><input id="radarCenterColor" type="color" aria-label="Radar center point color" /></div>
+      <div><label for="radarInnerColor">Inside inner ring</label><input id="radarInnerColor" type="color" aria-label="Radar inner area color" /></div>
+      <div><label for="radarBandColor">Between rings</label><input id="radarBandColor" type="color" aria-label="Radar background between rings" /></div>
+    </div>
 
     <div class="sec">Clock</div>
     <label>Time zone</label>
@@ -519,7 +537,7 @@ function selectValue(id,value,label){
   el.appendChild(opt); el.value=v;
 }
 const previewControlIds = [
-  'showLogo','showAirlineFlight','showRoute','showEta','showDistance','showProgressBar',
+  'showLogo','showAirlineFlight','showRoute','showEta','showDistance','showRadar','radarColor','radarActiveColor','radarAircraftColor','radarCenterColor','radarInnerColor','radarBandColor','showProgressBar',
   'showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr',
   'textColor','progressColor'
 ];
@@ -744,8 +762,9 @@ function renderPanelPreview(f,geometry){
   let content='';
 
   if(layout==='mini'){
+    const showRadar=previewEnabled('showRadar');
     const tx=previewEnabled('showLogo')?38:2;
-    const columns=Math.max(1,Math.floor((w-tx-1)/6));
+    const columns=Math.max(1,Math.floor((w-tx-(showRadar?34:1)-1)/6));
     const nameColumns=tracked?Math.max(1,Math.floor((w-44-tx)/6)):columns;
     const airline=previewEnabled('showAirlineFlight')?(f.airline||f.ident||'?'):'';
     const name=panelTruncate(airline,nameColumns);
@@ -755,7 +774,7 @@ function renderPanelPreview(f,geometry){
     const distance=previewEnabled('showDistance')&&Number.isFinite(distanceValue)
       ? formatDistance(f.distanceKm,distanceValue<10?1:0) : '';
     const bottomColumns=Math.max(1,Math.floor((w-2)/6));
-    const distanceFits=distance&&(route.length+1+distance.length)<=columns;
+    const distanceFits=!showRadar&&distance&&(route.length+1+distance.length)<=columns;
     const routeFits=route&&distanceFits;
     const routeLine=panelTruncate(route,columns);
     const aircraft=previewEnabled('showAircraft')?panelTruncate(f.aircraft,columns):'';
@@ -771,6 +790,7 @@ function renderPanelPreview(f,geometry){
     if(previewEnabled('flightNumberOverVr')&&f.ident) rowTwo.push({text:f.ident});
     if(!hasEta&&previewEnabled('showHeading')&&panelMetric(f.headingDeg)) rowTwo.push({text:'Trk:'+String(Math.round(Number(f.headingDeg))%360)+'deg'});
     if(previewEnabled('showVerticalRate')&&panelMetric(f.verticalRateFpm)) rowTwo.push({text:panelVerticalRate(f.verticalRateFpm,true)});
+    if(showRadar&&previewEnabled('showDistance')&&distance) rowTwo.push({text:'Dst:'+distance});
     let metricOne=buildRowOne(true);
     if(metricOne.length>bottomColumns) metricOne=buildRowOne(false);
     let metricTwo=[];
@@ -786,9 +806,10 @@ function renderPanelPreview(f,geometry){
       ? `<div class="panel-text panel-mini-route"><span>${esc(routeLine)}</span><span class="panel-mini-distance">${esc(distance)}</span></div>`
       : routeLine?`<span class="panel-text">${esc(routeLine)}</span>`:'';
     const markClass=showLogo?'':' no-logo';
-    content=`<div class="panel-mini-top${markClass}">${mark}<div class="panel-mini-copy">
+    content=`<div class="panel-mini-top${markClass}${showRadar?' radar-on':''}">${mark}<div class="panel-mini-copy">
       ${name?`<span class="panel-text panel-mini-airline${tracked?' tracked-name':''}">${esc(name)}</span>`:''}${routeBlock}${aircraft?`<span class="panel-text">${esc(aircraft)}</span>`:''}</div>
-      ${tracked?'<span class="panel-text panel-mini-label">TRACKED</span>':''}${distanceFits&&!tracked?'<span class="panel-mini-text panel-mini-dst">Dst</span>':''}</div>
+      ${tracked&&!showRadar?'<span class="panel-text panel-mini-label">TRACKED</span>':''}${distanceFits&&!tracked?'<span class="panel-mini-text panel-mini-dst">Dst</span>':''}</div>
+      ${showRadar?'<canvas class="panel-mini-radar" width="36" height="36"></canvas>':''}
       ${metricOne?`<div class="panel-mini-metric panel-mini-row-one">${esc(metricOne)}</div>`:''}
       ${metricTwo.length?`<div class="panel-mini-metric panel-mini-row-two">${metricTwoHtml}</div>`:''}`;
   }else{
@@ -810,9 +831,9 @@ function renderPanelPreview(f,geometry){
   const screenWidth=Math.min(w*3,360);
   const textColor=settingsLoaded?$('textColor').value:'#ffffff';
   const progressColor=settingsLoaded?$('progressColor').value:'#22c55e';
-  const screenStyle=`--panel-width:${w};--panel-height:${h};--screen-max-width:${screenWidth}px;--mini-top-height:${Math.min(32,h)/h*100}%;--mini-logo-width:${Math.min(32,w)/w*100}%;--panel-text:${esc(textColor||'#ffffff')};--panel-progress:${esc(progressColor||'#22c55e')};--operator-accent:${panelAccent(operatorKey)};`;
+  const screenStyle=`--panel-width:${w};--panel-height:${h};--screen-max-width:${screenWidth}px;--mini-top-height:${Math.min(32,h)/h*100}%;--mini-logo-width:${Math.min(32,w)/Math.max(1,w-4)*100}%;--mini-logo-nudge:${-2*screenWidth/w}px;--panel-text:${esc(textColor||'#ffffff')};--panel-progress:${esc(progressColor||'#22c55e')};--operator-accent:${panelAccent(operatorKey)};`;
   const layoutClass=layout==='mini'?'mini':layout==='wide'?'wide':layout==='stack'?'stack':'text';
-  return `<div class="flight-display-card"><div class="panel-screen panel-${layoutClass}${tracked?' tracked':''}" data-panel-width="${w}" style="${screenStyle}">${content}${progressBar}</div></div>`;
+  return `<div class="flight-display-card"><div class="panel-screen panel-${layoutClass}${tracked?' tracked':''}" data-panel-width="${w}" data-active-lat="${esc(f.lat??'')}" data-active-lon="${esc(f.lon??'')}" style="${screenStyle}">${content}${progressBar}</div></div>`;
 }
 
 function fitPanelPreviews(){
@@ -828,6 +849,55 @@ function fitPanelPreviews(){
     screen.style.setProperty('--mark-font',`${markSize/2*scale}px`);
     screen.style.setProperty('--panel-border',`${Math.max(1,scale)}px`);
     screen.style.setProperty('--progress-height',`${Math.max(1,Math.min(2,Number(screen.style.getPropertyValue('--panel-height')))*scale)}px`);
+  });
+}
+
+function drawMiniRadarPreviews(){
+  const data=latestRadarData;
+  const centerLat=Number(data?.centerLat??$('centerLat').value),centerLon=Number(data?.centerLon??$('centerLon').value);
+  const displayKm=data?Number(data.displayRadiusKm):settingsLoaded?selectedDistanceToKm($('radiusKm').value):5;
+  const innerKm=data?.usesWatchRing?Number(data.innerBandKm):displayKm/2;
+  const aircraft=data?.aircraft||latestFlights;
+  document.querySelectorAll('.panel-mini-radar').forEach(canvas=>{
+    const context=canvas.getContext('2d');
+    if(!context) return;
+    const center=18,outer=17;
+    const radarScaleKm=displayKm;
+    const radarColor=settingsLoaded?$('radarColor').value:'#c8c8c8';
+    const activeColor=settingsLoaded?$('radarActiveColor').value:'#ffd246';
+    const aircraftColor=settingsLoaded?$('radarAircraftColor').value:'#00d25a';
+    const centerColor=settingsLoaded?$('radarCenterColor').value:'#c8c8c8';
+    const innerColor=settingsLoaded?$('radarInnerColor').value:'#000000';
+    const bandColor=settingsLoaded?$('radarBandColor').value:'#000000';
+    context.clearRect(0,0,36,36);
+    context.fillStyle='#000'; context.fillRect(0,0,36,36);
+    if(displayKm>0&&radarScaleKm>0){
+      const innerRadius=outer*Math.max(0,Math.min(displayKm,innerKm))/radarScaleKm;
+      context.beginPath(); context.arc(center,center,outer,0,Math.PI*2); context.fillStyle=bandColor; context.fill();
+      context.beginPath(); context.arc(center,center,Math.max(0,innerRadius-0.5),0,Math.PI*2); context.fillStyle=innerColor; context.fill();
+      context.beginPath(); context.strokeStyle=radarColor; context.lineWidth=1; context.arc(center,center,outer,0,Math.PI*2); context.stroke();
+      if(innerRadius>0){context.beginPath();context.strokeStyle=radarColor;context.lineWidth=1;context.arc(center,center,innerRadius,0,Math.PI*2);context.stroke();}
+    }
+    context.fillStyle=centerColor; context.fillRect(center,center,1,1);
+    for(const currentPass of [false,true]) for(const flight of aircraft){
+      if(!panelMetric(flight.lat)||!panelMetric(flight.lon)) continue;
+      const distance=panelMetric(flight.distanceKm)?Number(flight.distanceKm):radarDistanceKm(centerLat,centerLon,Number(flight.lat),Number(flight.lon));
+      if(!Number.isFinite(distance)||distance>displayKm||displayKm<=0) continue;
+      const bearing=radarBearingDegrees(centerLat,centerLon,Number(flight.lat),Number(flight.lon))*Math.PI/180;
+      const scale=outer*distance/radarScaleKm,x=center+Math.sin(bearing)*scale,y=center-Math.cos(bearing)*scale;
+      const activeLat=Number(canvas.closest('.panel-screen').dataset.activeLat);
+      const activeLon=Number(canvas.closest('.panel-screen').dataset.activeLon);
+      const isCurrent=Number.isFinite(activeLat)&&Number.isFinite(activeLon)&&
+        Math.abs(activeLat-Number(flight.lat))<0.00001&&Math.abs(activeLon-Number(flight.lon))<0.00001;
+      if(isCurrent!==currentPass) continue;
+      context.fillStyle=isCurrent?activeColor:aircraftColor;
+      if(panelMetric(flight.headingDeg)){
+        const tail=(Number(flight.headingDeg)+180)*Math.PI/180;
+        const trail=4;
+        context.beginPath(); context.moveTo(x,y); context.lineTo(x+Math.sin(tail)*trail,y-Math.cos(tail)*trail); context.strokeStyle=context.fillStyle; context.stroke();
+      }
+      context.beginPath(); context.arc(x,y,1,0,Math.PI*2); context.fill();
+    }
   });
 }
 
@@ -849,10 +919,10 @@ function renderFlightCards(flights){
       <span>${esc(x.origin)||'?'} → ${esc(x.destination)||'?'} · ${esc(x.aircraft)}${aircraftDescription?` · ${esc(aircraftDescription)}`:''}</span>
       ${metrics.length?'<br><span>'+metrics.join(' · ')+'</span>':''}</div>${renderPanelPreview(x,geometry)}</div>`;
   }).join(''):'<small class="help">No flights currently displayed.</small>';
-  requestAnimationFrame(()=>{ fitPanelPreviews(); loadPanelLogos(); });
+  requestAnimationFrame(()=>{ fitPanelPreviews(); loadPanelLogos(); drawMiniRadarPreviews(); });
 }
 
-let radarBusy=false;
+let radarBusy=false,latestRadarData=null;
 function radarBearingDegrees(centerLat,centerLon,lat,lon){
   const toRadians=value=>value*Math.PI/180;
   const lat1=toRadians(centerLat),lat2=toRadians(lat),deltaLon=toRadians(lon-centerLon);
@@ -944,25 +1014,31 @@ function renderAreaRadar(data){
   $('radarLegend').innerHTML=legend.map(([color,label])=>`<div class="radar-legend-row"><span class="radar-swatch" style="--swatch:${color}"></span><span>${esc(label)}</span></div>`).join('');
 }
 
-async function loadAreaRadar(){
-  if(!$('areaRadarSection').open||radarBusy) return;
+async function refreshRadarData(){
+  if(radarBusy) return;
   radarBusy=true;
   try{
     const response=await fetch('/api/radar');
     if(!response.ok) throw new Error(`HTTP ${response.status}`);
-    renderAreaRadar(await response.json());
+    latestRadarData=await response.json();
+    if($('areaRadarSection').open) renderAreaRadar(latestRadarData);
+    drawMiniRadarPreviews();
   }catch(e){
-    $('radarState').textContent='Radar data unavailable';
+    if($('areaRadarSection').open) $('radarState').textContent='Radar data unavailable';
   }finally{
     radarBusy=false;
   }
+}
+
+async function loadAreaRadar(){
+  if($('areaRadarSection').open) await refreshRadarData();
 }
 
 $('areaRadarSection').addEventListener('toggle',()=>{
   if($('areaRadarSection').open) loadAreaRadar();
 });
 window.addEventListener('resize',()=>{
-  if($('areaRadarSection').open) loadAreaRadar();
+  if($('areaRadarSection').open&&latestRadarData) renderAreaRadar(latestRadarData);
 });
 
 function rgbToHex(r,g,b){return '#'+[r,g,b].map(x=>x.toString(16).padStart(2,'0')).join('');}
@@ -1051,12 +1127,18 @@ async function loadSettings(){
 
   $('brightness').value = s.display.brightness;
   $('textColor').value = rgbToHex(s.display.textColorR, s.display.textColorG, s.display.textColorB);
+  $('radarColor').value = rgbToHex(s.display.radarColorR ?? 200, s.display.radarColorG ?? 200, s.display.radarColorB ?? 200);
+  $('radarActiveColor').value = rgbToHex(s.display.radarActiveColorR ?? 255, s.display.radarActiveColorG ?? 210, s.display.radarActiveColorB ?? 70);
+  $('radarAircraftColor').value = rgbToHex(s.display.radarAircraftColorR ?? 0, s.display.radarAircraftColorG ?? 210, s.display.radarAircraftColorB ?? 90);
+  $('radarCenterColor').value = rgbToHex(s.display.radarCenterColorR ?? 200, s.display.radarCenterColorG ?? 200, s.display.radarCenterColorB ?? 200);
+  $('radarInnerColor').value = rgbToHex(s.display.radarInnerColorR ?? 0, s.display.radarInnerColorG ?? 0, s.display.radarInnerColorB ?? 0);
+  $('radarBandColor').value = rgbToHex(s.display.radarBandColorR ?? 0, s.display.radarBandColorG ?? 0, s.display.radarBandColorB ?? 0);
   $('progressColor').value = rgbToHex(s.display.progressColorR, s.display.progressColorG, s.display.progressColorB);
   $('maxFlights').value = s.display.maxFlights;
   $('cycleSeconds').value = s.display.cycleSeconds;
   $('fetchIntervalSeconds').value = s.display.fetchIntervalSeconds;
 
-  for (const k of ['showLogo','showAirlineFlight','showRoute','showEta','showDistance','showProgressBar','showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr'])
+  for (const k of ['showLogo','showAirlineFlight','showRoute','showEta','showDistance','showRadar','showProgressBar','showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr'])
     $(k).checked = !!s.layout[k];
   selectValue('noFlightsMode', s.layout.noFlightsMode || 'dots', 'Stored');
 
@@ -1105,6 +1187,7 @@ async function loadSettings(){
   const b = $('saveBtn'); b.disabled = false; b.title = '';
   settingsLoaded = true;
   renderFlightCards(latestFlights);
+  if($('showRadar').checked) refreshRadarData();
 }
 
 // Omit an untouched secret entirely rather than sending "". fromJson skips
@@ -1112,6 +1195,12 @@ async function loadSettings(){
 function secret(id){ const v=$(id).value; return v ? {[id]:v} : {}; }
 function collect(){
   const [r,g,b] = hexToRgb($('textColor').value);
+  const [rr,rg,rb] = hexToRgb($('radarColor').value);
+  const [ar,ag,ab] = hexToRgb($('radarActiveColor').value);
+  const [cr,cg,cb] = hexToRgb($('radarAircraftColor').value);
+  const [mr,mg,mb] = hexToRgb($('radarCenterColor').value);
+  const [ir,ig,ib] = hexToRgb($('radarInnerColor').value);
+  const [br,bg,bb] = hexToRgb($('radarBandColor').value);
   const [pr,pg,pb] = hexToRgb($('progressColor').value);
   const lines = v => v.split(/[\n,]/).map(x=>x.trim()).filter(Boolean);
   return {
@@ -1134,11 +1223,17 @@ function collect(){
     },
     display:{
       brightness:+$('brightness').value, textColorR:r, textColorG:g, textColorB:b,
+      radarColorR:rr, radarColorG:rg, radarColorB:rb,
+      radarActiveColorR:ar, radarActiveColorG:ag, radarActiveColorB:ab,
+      radarAircraftColorR:cr, radarAircraftColorG:cg, radarAircraftColorB:cb,
+      radarCenterColorR:mr, radarCenterColorG:mg, radarCenterColorB:mb,
+      radarInnerColorR:ir, radarInnerColorG:ig, radarInnerColorB:ib,
+      radarBandColorR:br, radarBandColorG:bg, radarBandColorB:bb,
       progressColorR:pr, progressColorG:pg, progressColorB:pb,
       maxFlights:+$('maxFlights').value, cycleSeconds:+$('cycleSeconds').value,
       fetchIntervalSeconds:+$('fetchIntervalSeconds').value
     },
-    layout:Object.assign(Object.fromEntries(['showLogo','showAirlineFlight','showRoute','showEta','showDistance','showProgressBar','showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr'].map(k=>[k,$(k).checked])), {noFlightsMode:$('noFlightsMode').value}),
+    layout:Object.assign(Object.fromEntries(['showLogo','showAirlineFlight','showRoute','showEta','showDistance','showRadar','showProgressBar','showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr'].map(k=>[k,$(k).checked])), {noFlightsMode:$('noFlightsMode').value}),
     filters:{
       minAltitudeFt:+$('minAltitudeFt').value, maxAltitudeFt:+$('maxAltitudeFt').value,
       excludeOnGround:$('excludeOnGround').checked,
@@ -1331,7 +1426,7 @@ async function scanWifi(){
     latestFlights=f;
     renderFlightCards(f);
   }catch(e){}
-  if($('areaRadarSection').open) loadAreaRadar();
+  if($('areaRadarSection').open || (settingsLoaded && $('showRadar').checked)) refreshRadarData();
 }
 
 // ---- Airlines to ignore: the name finder ------------------------------------

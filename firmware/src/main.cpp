@@ -1291,7 +1291,8 @@ void loop()
         applyFetchResult(std::move(g_fetchResult), g_fetchOk, g_fetchEnriched,
                          g_fetchNearestDistanceKm, g_fetchFr24BandCounts,
                          g_fetchFr24BandCountsValid, std::move(g_fetchRadarStates));
-            g_web.setRadarStates(&g_lastRadarStates);
+        g_web.setRadarStates(&g_lastRadarStates);
+        g_display.setRadarStates(&g_lastRadarStates);
         // Interval counts from completion so a slow fetch cannot run back to back,
         // but keep a pending "fetch now" request (0) from a settings change.
         if (g_lastFetchMs != 0)

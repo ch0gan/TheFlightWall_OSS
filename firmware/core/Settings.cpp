@@ -263,6 +263,24 @@ String Settings::serialize(bool redactSecrets) const
     disp["textColorR"] = textColorR;
     disp["textColorG"] = textColorG;
     disp["textColorB"] = textColorB;
+    disp["radarColorR"] = radarColorR;
+    disp["radarColorG"] = radarColorG;
+    disp["radarColorB"] = radarColorB;
+    disp["radarActiveColorR"] = radarActiveColorR;
+    disp["radarActiveColorG"] = radarActiveColorG;
+    disp["radarActiveColorB"] = radarActiveColorB;
+    disp["radarAircraftColorR"] = radarAircraftColorR;
+    disp["radarAircraftColorG"] = radarAircraftColorG;
+    disp["radarAircraftColorB"] = radarAircraftColorB;
+    disp["radarCenterColorR"] = radarCenterColorR;
+    disp["radarCenterColorG"] = radarCenterColorG;
+    disp["radarCenterColorB"] = radarCenterColorB;
+    disp["radarInnerColorR"] = radarInnerColorR;
+    disp["radarInnerColorG"] = radarInnerColorG;
+    disp["radarInnerColorB"] = radarInnerColorB;
+    disp["radarBandColorR"] = radarBandColorR;
+    disp["radarBandColorG"] = radarBandColorG;
+    disp["radarBandColorB"] = radarBandColorB;
     disp["progressColorR"] = progressColorR;
     disp["progressColorG"] = progressColorG;
     disp["progressColorB"] = progressColorB;
@@ -281,6 +299,7 @@ String Settings::serialize(bool redactSecrets) const
     lay["showVerticalRate"] = layout.showVerticalRate;
     lay["showEta"] = layout.showEta;
     lay["showDistance"] = layout.showDistance;
+    lay["showRadar"] = layout.showRadar;
     lay["showProgressBar"] = layout.showProgressBar;
     lay["flightNumberOverVr"] = layout.flightNumberOverVr;
     lay["noFlightsMode"] = layout.noFlightsMode;
@@ -453,6 +472,42 @@ bool Settings::fromJson(const String &in)
             textColorG = disp["textColorG"].as<uint8_t>();
         if (disp.containsKey("textColorB"))
             textColorB = disp["textColorB"].as<uint8_t>();
+        if (disp.containsKey("radarColorR"))
+            radarColorR = disp["radarColorR"].as<uint8_t>();
+        if (disp.containsKey("radarColorG"))
+            radarColorG = disp["radarColorG"].as<uint8_t>();
+        if (disp.containsKey("radarColorB"))
+            radarColorB = disp["radarColorB"].as<uint8_t>();
+        if (disp.containsKey("radarActiveColorR"))
+            radarActiveColorR = disp["radarActiveColorR"].as<uint8_t>();
+        if (disp.containsKey("radarActiveColorG"))
+            radarActiveColorG = disp["radarActiveColorG"].as<uint8_t>();
+        if (disp.containsKey("radarActiveColorB"))
+            radarActiveColorB = disp["radarActiveColorB"].as<uint8_t>();
+        if (disp.containsKey("radarAircraftColorR"))
+            radarAircraftColorR = disp["radarAircraftColorR"].as<uint8_t>();
+        if (disp.containsKey("radarAircraftColorG"))
+            radarAircraftColorG = disp["radarAircraftColorG"].as<uint8_t>();
+        if (disp.containsKey("radarAircraftColorB"))
+            radarAircraftColorB = disp["radarAircraftColorB"].as<uint8_t>();
+        if (disp.containsKey("radarCenterColorR"))
+            radarCenterColorR = disp["radarCenterColorR"].as<uint8_t>();
+        if (disp.containsKey("radarCenterColorG"))
+            radarCenterColorG = disp["radarCenterColorG"].as<uint8_t>();
+        if (disp.containsKey("radarCenterColorB"))
+            radarCenterColorB = disp["radarCenterColorB"].as<uint8_t>();
+        if (disp.containsKey("radarInnerColorR"))
+            radarInnerColorR = disp["radarInnerColorR"].as<uint8_t>();
+        if (disp.containsKey("radarInnerColorG"))
+            radarInnerColorG = disp["radarInnerColorG"].as<uint8_t>();
+        if (disp.containsKey("radarInnerColorB"))
+            radarInnerColorB = disp["radarInnerColorB"].as<uint8_t>();
+        if (disp.containsKey("radarBandColorR"))
+            radarBandColorR = disp["radarBandColorR"].as<uint8_t>();
+        if (disp.containsKey("radarBandColorG"))
+            radarBandColorG = disp["radarBandColorG"].as<uint8_t>();
+        if (disp.containsKey("radarBandColorB"))
+            radarBandColorB = disp["radarBandColorB"].as<uint8_t>();
         if (disp.containsKey("progressColorR"))
             progressColorR = disp["progressColorR"].as<uint8_t>();
         if (disp.containsKey("progressColorG"))
@@ -480,6 +535,7 @@ bool Settings::fromJson(const String &in)
         layout.showVerticalRate = lay["showVerticalRate"] | layout.showVerticalRate;
         layout.showEta = lay["showEta"] | layout.showEta;
         layout.showDistance = lay["showDistance"] | layout.showDistance;
+        layout.showRadar = lay["showRadar"] | layout.showRadar;
         layout.showProgressBar = lay["showProgressBar"] | layout.showProgressBar;
         layout.flightNumberOverVr = lay["flightNumberOverVr"] | layout.flightNumberOverVr;
         if (lay.containsKey("noFlightsMode"))

@@ -387,6 +387,10 @@ String WebConfigServer::buildFlightsJson() const
             o["aircraftManufacturer"] = f.aircraft_manufacturer;
             o["aircraftModel"] = f.aircraft_model;
             o["aircraftClass"] = f.aircraft_icon_class;
+            if (renderable(f.lat))
+                o["lat"] = f.lat;
+            if (renderable(f.lon))
+                o["lon"] = f.lon;
             o["pinned"] = f.pinned;
             // The code the ignore list wants, separately from the display
             // name above, so the page can offer "ignore EJA" beside a flight

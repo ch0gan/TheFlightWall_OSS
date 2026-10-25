@@ -91,6 +91,7 @@ struct DisplayLayout
     bool showVerticalRate = true;  // "+1200fpm"
     bool showEta = true;           // "~1h05" / "LANDING"
     bool showDistance = true;      // "Dst" + distance from the configured center
+    bool showRadar = false;        // 32x32 radar in the Mini card's Dst slot
     bool showProgressBar = true;   // route/trip progress bar along the bottom
     bool flightNumberOverVr = true;  // show the flight number in the vertical-rate slot
     // What to show when there are zero flights:
@@ -191,6 +192,24 @@ struct Settings
     uint8_t textColorR = UserConfiguration::TEXT_COLOR_R;
     uint8_t textColorG = UserConfiguration::TEXT_COLOR_G;
     uint8_t textColorB = UserConfiguration::TEXT_COLOR_B;
+    uint8_t radarColorR = 200;
+    uint8_t radarColorG = 200;
+    uint8_t radarColorB = 200;
+    uint8_t radarActiveColorR = 255;
+    uint8_t radarActiveColorG = 210;
+    uint8_t radarActiveColorB = 70;
+    uint8_t radarAircraftColorR = 0;
+    uint8_t radarAircraftColorG = 210;
+    uint8_t radarAircraftColorB = 90;
+    uint8_t radarCenterColorR = 200;
+    uint8_t radarCenterColorG = 200;
+    uint8_t radarCenterColorB = 200;
+    uint8_t radarInnerColorR = 0;
+    uint8_t radarInnerColorG = 0;
+    uint8_t radarInnerColorB = 0;
+    uint8_t radarBandColorR = 0;
+    uint8_t radarBandColorG = 0;
+    uint8_t radarBandColorB = 0;
     // Filled part of the progress bar (and the ETA text over it).
     uint8_t progressColorR = 0;
     uint8_t progressColorG = 210;

@@ -21,6 +21,8 @@ Inputs: FlightInfo list; g_settings (colors/brightness/layout/cycle/geometry).
 #include "utils/ServerJson.h" // renderable()
 #include "utils/ProgressBar.h" // progressFillPixels()
 #include "utils/RouteDistance.h"
+#include "utils/GeoUtils.h"
+#include "utils/GeoUtils.h"
 #include "core/Settings.h"
 #include "utils/ClockFormat.h"
 
@@ -644,7 +646,7 @@ void Hub75Display::drawTrackedChrome(const FlightInfo &f)
     // rows 4-7 but never a column: at 128px the name is cut to 7 chars, ending
     // at x=80, and the label starts at x=86.
     const int16_t x = trackedLabelX();
-    if (x >= 0)
+    if (x >= 0 && !g_settings.layout.showRadar)
         drawTextLine(x, 1, String(TRACKED_LABEL), white);
 
     drawProgressBar(f);
@@ -736,10 +738,10 @@ void Hub75Display::startOutput()
     static_cast<RestartablePanel *>(_panel)->resumeDMAoutput();
 }
 
-void Hub75Display::displayFlightCard(const FlightInfo &f)
+void Hub75Display::displayFlightCard(const FlightInfo &f, const std::vector<FlightInfo> &flights)
 {
     if (usesMiniCard())
-        displayMiniCard(f); // big panel (e.g. 128x64): logo + 3 info lines + 2 metric rows
+        displayMiniCard(f, flights); // big panel: logo + info/metrics + optional area radar
     else if (_matrixHeight < 16)
         displayTextOnlyCard(f); // too short for a logo
     else if (_matrixWidth >= _matrixHeight * 2)
@@ -752,6 +754,103 @@ void Hub75Display::displayFlightCard(const FlightInfo &f)
     // because it lived in drawLogoOrBadge and that layout never calls it.
     if (f.pinned)
         drawTrackedChrome(f);
+}
+
+void Hub75Display::drawMiniRadar(int16_t x, int16_t y, const FlightInfo &current,
+                                 const std::vector<FlightInfo> &flights)
+{
+    constexpr int16_t box = 36;
+    constexpr int16_t center = 18;
+    constexpr int16_t radius = 17;
+    const uint16_t ring = rgb565(g_settings.radarColorR,
+                                 g_settings.radarColorG,
+                                 g_settings.radarColorB);
+    const uint16_t aircraftColor = rgb565(g_settings.radarAircraftColorR,
+                                          g_settings.radarAircraftColorG,
+                                          g_settings.radarAircraftColorB);
+    const uint16_t currentColor = rgb565(g_settings.radarActiveColorR,
+                                         g_settings.radarActiveColorG,
+                                         g_settings.radarActiveColorB);
+    const uint16_t centerColor = rgb565(g_settings.radarCenterColorR,
+                                        g_settings.radarCenterColorG,
+                                        g_settings.radarCenterColorB);
+    const uint16_t innerColor = rgb565(g_settings.radarInnerColorR,
+                                       g_settings.radarInnerColorG,
+                                       g_settings.radarInnerColorB);
+    const uint16_t bandColor = rgb565(g_settings.radarBandColorR,
+                                      g_settings.radarBandColorG,
+                                      g_settings.radarBandColorB);
+    const double displayRadiusKm = g_settings.radiusKm;
+    const double radarRadiusKm = displayRadiusKm;
+    const double innerBandKm = min(displayRadiusKm, max(0.0, g_settings.fr24InnerBandKm));
+
+    _canvas->fillRect(x, y, box, box, 0);
+    if (radarRadiusKm > 0)
+    {
+        _canvas->fillCircle(x + center, y + center, radius, bandColor);
+        _canvas->drawCircle(x + center, y + center, radius, ring);
+        const int16_t innerRing = max((int16_t)1, (int16_t)lround(radius * innerBandKm / radarRadiusKm));
+        _canvas->fillCircle(x + center, y + center,
+                            max((int16_t)0, (int16_t)(innerRing - 1)), innerColor);
+        _canvas->drawCircle(x + center, y + center, innerRing, ring);
+    }
+    auto plotAircraft = [&](double lat, double lon, double heading, double distanceKm, bool isCurrent)
+    {
+        if (radarRadiusKm <= 0 || !renderable(lat) || !renderable(lon) ||
+            !std::isfinite(distanceKm) || distanceKm > displayRadiusKm)
+            return;
+        const double bearing = degreesToRadians(computeBearingDeg(
+            g_settings.centerLat, g_settings.centerLon, lat, lon));
+        const double distance = radius * distanceKm / radarRadiusKm;
+        const int16_t px = x + center + (int16_t)lround(sin(bearing) * distance);
+        const int16_t py = y + center - (int16_t)lround(cos(bearing) * distance);
+        const uint16_t color = isCurrent ? currentColor : aircraftColor;
+        if (renderable(heading))
+        {
+            const double trail = degreesToRadians(heading + 180.0);
+            _canvas->drawLine(px, py,
+                              px + (int16_t)lround(sin(trail) * 4.0),
+                              py - (int16_t)lround(cos(trail) * 4.0),
+                              color);
+        }
+        _canvas->fillCircle(px, py, 1, color);
+    };
+
+    _canvas->drawPixel(x + center, y + center, centerColor);
+
+    auto plotAircraftPass = [&](bool currentPass)
+    {
+        if (_radarStates && g_settings.mode == TrackingMode::Area)
+        {
+            for (const StateVector &flight : *_radarStates)
+            {
+                const double distanceKm = renderable(flight.distance_km)
+                    ? flight.distance_km
+                    : haversineKm(g_settings.centerLat, g_settings.centerLon, flight.lat, flight.lon);
+                const bool isCurrent = renderable(current.lat) && renderable(current.lon) &&
+                                       fabs(current.lat - flight.lat) < 0.00001 &&
+                                       fabs(current.lon - flight.lon) < 0.00001;
+                if (isCurrent == currentPass)
+                    plotAircraft(flight.lat, flight.lon, flight.heading, distanceKm, isCurrent);
+            }
+        }
+        else
+        {
+            for (const FlightInfo &flight : flights)
+            {
+                const bool isCurrent = &flight == &current;
+                if (isCurrent != currentPass)
+                    continue;
+                const double distanceKm = renderable(flight.distance_km)
+                    ? flight.distance_km
+                    : haversineKm(g_settings.centerLat, g_settings.centerLon, flight.lat, flight.lon);
+                plotAircraft(flight.lat, flight.lon, flight.heading_deg, distanceKm, isCurrent);
+            }
+        }
+    };
+
+    plotAircraftPass(false);
+    plotAircraftPass(true);
 }
 
 // "ORD-LAX" style route, preferring IATA codes.
@@ -787,21 +886,23 @@ static String miniSpdMph(double kt, bool unit)
 }
 
 // Distance from the configured center in the user's selected unit.
-static String miniDistance(double km)
+static String miniDistance(double km, bool unit = true)
 {
     if (!renderable(km))
         return String("");
     double distance = km;
-    const char *suffix = "km";
+    const char *suffix = unit ? "km" : "";
     if (g_settings.distanceUnit == "mi")
     {
         distance *= 0.6213711922;
-        suffix = "mi";
+        if (unit)
+            suffix = "mi";
     }
     else if (g_settings.distanceUnit == "nm")
     {
         distance *= 0.5399568035;
-        suffix = "nm";
+        if (unit)
+            suffix = "nm";
     }
     char b[16];
     snprintf(b, sizeof(b), distance < 10.0 ? "%.1f%s" : "%.0f%s", distance, suffix);
@@ -892,23 +993,28 @@ static String stripAirlineWords(const String &name)
     return out.length() ? out : name;
 }
 
-void Hub75Display::displayMiniCard(const FlightInfo &f)
+void Hub75Display::displayMiniCard(const FlightInfo &f, const std::vector<FlightInfo> &flights)
 {
     const uint16_t color = textColor();
 
     const DisplayLayout &L0 = g_settings.layout;
-    // Logo: 32x32 box, top-left (nudged down a few px for vertical balance).
+    // Logo: 32x32 box at the requested 2px inset.
     const int16_t box = 32;
     const int16_t topY = 4;
     if (L0.showLogo)
-        drawLogoOrBadge(f, 2, topY, box, box);
+        drawLogoOrBadge(f, 2, 2, box, box);
     else
         _lastDrewLogo = false;
 
     // Three info lines to the right of the logo (airline / route / aircraft); they use
     // the full width when the logo is hidden.
     const int16_t tx = L0.showLogo ? (int16_t)(2 + box + 4) : (int16_t)2; // ~38
-    const int topCols = (_matrixWidth - tx - 1) / 6;
+    const int16_t radarSize = 36;
+    const int16_t radarX = (int16_t)(_matrixWidth - radarSize - 1);
+    const int topRight = L0.showRadar ? radarX - 2 : _matrixWidth - 1;
+    const int topCols = max(1, (topRight - tx) / 6);
+    if (L0.showRadar)
+        drawMiniRadar(radarX, 1, f, flights);
 
     // The TRACKED label shares the first line's row, so on a tracked card the
     // airline name gets only the columns left of it (14 -> 7 at 128px wide).
@@ -935,8 +1041,9 @@ void Hub75Display::displayMiniCard(const FlightInfo &f)
 
     // "Dst" labels the center distance on the row below it, right-aligned to it.
     // Not on tracked cards: TRACKED owns that corner.
-    const String dist = g_settings.layout.showDistance ? miniDistance(f.distance_km) : String();
-    const bool showDist = dist.length() && (int)(route.length() + 1 + dist.length()) <= topCols;
+    const String dist = L0.showDistance ? miniDistance(f.distance_km) : String();
+    const bool showDist = !L0.showRadar && dist.length() &&
+                          (int)(route.length() + 1 + dist.length()) <= topCols;
     int topColsAirlineFit = topColsAirline;
     if (showDist && labelX < 0)
     {
@@ -1030,6 +1137,12 @@ void Hub75Display::displayMiniCard(const FlightInfo &f)
             const String v = miniVr(f.vertical_rate_fpm, unit);
             if (v.length())
                 cands.push_back("Vr:" + v);
+        }
+        if (L.showRadar && L.showDistance)
+        {
+            const String distance = miniDistance(f.distance_km, unit);
+            if (distance.length())
+                cands.push_back("Dst:" + distance);
         }
         return joinWithinColumns(cands, botCols);
     };
@@ -1299,7 +1412,7 @@ void Hub75Display::displayFlights(const std::vector<FlightInfo> &flights)
 
     if (indexToShow != SIZE_MAX)
     {
-        displayFlightCard(flights[indexToShow]);
+        displayFlightCard(flights[indexToShow], flights);
     }
     else
     {
