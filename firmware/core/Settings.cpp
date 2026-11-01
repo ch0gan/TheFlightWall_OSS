@@ -281,6 +281,7 @@ String Settings::serialize(bool redactSecrets) const
     disp["radarBandColorR"] = radarBandColorR;
     disp["radarBandColorG"] = radarBandColorG;
     disp["radarBandColorB"] = radarBandColorB;
+    disp["radarAircraftShape"] = radarAircraftShape;
     disp["progressColorR"] = progressColorR;
     disp["progressColorG"] = progressColorG;
     disp["progressColorB"] = progressColorB;
@@ -508,6 +509,13 @@ bool Settings::fromJson(const String &in)
             radarBandColorG = disp["radarBandColorG"].as<uint8_t>();
         if (disp.containsKey("radarBandColorB"))
             radarBandColorB = disp["radarBandColorB"].as<uint8_t>();
+        if (disp.containsKey("radarAircraftShape"))
+        {
+            const int shape = disp["radarAircraftShape"].as<int>();
+            radarAircraftShape = (shape >= 0 && shape < RADAR_AIRCRAFT_SHAPE_COUNT)
+                                     ? (uint8_t)shape
+                                     : (uint8_t)RadarAircraftShape::DotTrail;
+        }
         if (disp.containsKey("progressColorR"))
             progressColorR = disp["progressColorR"].as<uint8_t>();
         if (disp.containsKey("progressColorG"))

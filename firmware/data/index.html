@@ -274,6 +274,15 @@
       <div><label for="radarInnerColor">Inside inner ring</label><input id="radarInnerColor" type="color" aria-label="Radar inner area color" /></div>
       <div><label for="radarBandColor">Between rings</label><input id="radarBandColor" type="color" aria-label="Radar background between rings" /></div>
     </div>
+    <label for="radarAircraftShape">Aircraft shape</label>
+    <select id="radarAircraftShape">
+      <option value="0">Dot with trail (original)</option>
+      <option value="1">Chevron</option>
+      <option value="2">Plane</option>
+      <option value="3">Dot with fading trail</option>
+      <option value="4">Dot with nose tick</option>
+    </select>
+    <small class="help">Used on the LED radar and both radars on this page. On the LED, chevron and plane snap to the nearest 45° so they stay crisp; aircraft with no heading are drawn as a plain dot.</small>
 
     <div class="sec">Clock</div>
     <label>Time zone</label>
@@ -537,7 +546,7 @@ function selectValue(id,value,label){
   el.appendChild(opt); el.value=v;
 }
 const previewControlIds = [
-  'showLogo','showAirlineFlight','showRoute','showEta','showDistance','showRadar','radarColor','radarActiveColor','radarAircraftColor','radarCenterColor','radarInnerColor','radarBandColor','showProgressBar',
+  'showLogo','showAirlineFlight','showRoute','showEta','showDistance','showRadar','radarColor','radarActiveColor','radarAircraftColor','radarCenterColor','radarInnerColor','radarBandColor','radarAircraftShape','showProgressBar',
   'showAircraft','showAltitude','showSpeed','showHeading','showVerticalRate','flightNumberOverVr',
   'textColor','progressColor'
 ];
@@ -869,6 +878,7 @@ function drawMiniRadarPreviews(){
     const centerColor=settingsLoaded?$('radarCenterColor').value:'#c8c8c8';
     const innerColor=settingsLoaded?$('radarInnerColor').value:'#000000';
     const bandColor=settingsLoaded?$('radarBandColor').value:'#000000';
+    const shape=radarShape();
     context.clearRect(0,0,36,36);
     context.fillStyle='#000'; context.fillRect(0,0,36,36);
     if(displayKm>0&&radarScaleKm>0){
@@ -890,15 +900,84 @@ function drawMiniRadarPreviews(){
       const isCurrent=Number.isFinite(activeLat)&&Number.isFinite(activeLon)&&
         Math.abs(activeLat-Number(flight.lat))<0.00001&&Math.abs(activeLon-Number(flight.lon))<0.00001;
       if(isCurrent!==currentPass) continue;
-      context.fillStyle=isCurrent?activeColor:aircraftColor;
-      if(panelMetric(flight.headingDeg)){
-        const tail=(Number(flight.headingDeg)+180)*Math.PI/180;
-        const trail=4;
-        context.beginPath(); context.moveTo(x,y); context.lineTo(x+Math.sin(tail)*trail,y-Math.cos(tail)*trail); context.strokeStyle=context.fillStyle; context.stroke();
-      }
-      context.beginPath(); context.arc(x,y,1,0,Math.PI*2); context.fill();
+      drawLedAircraft(context,Math.round(x),Math.round(y),
+        panelMetric(flight.headingDeg)?Number(flight.headingDeg):null,isCurrent?activeColor:aircraftColor,shape);
     }
   });
+}
+
+// Copy of the 5x5 sprites in Hub75Display.cpp: [north, north-east].
+const RADAR_SPRITES={
+  1:[["..#..",".###.","##.##","#...#","....."],[".....","####.","..##.","...#.","...#."]],
+  2:[["..#..",".###.","#####","..#..",".###."],["....#","##.#.","..#..","##.#.",".#.#."]]
+};
+function radarShape(){ return settingsLoaded?(Number($('radarAircraftShape').value)||0):0; }
+function scaledHex(hex,pct){
+  const [r,g,b]=hexToRgb(hex);
+  return `rgb(${Math.floor(r*pct/100)},${Math.floor(g*pct/100)},${Math.floor(b*pct/100)})`;
+}
+// Pixel-for-pixel copy of plotAircraft in Hub75Display.cpp, for the 36x36 preview.
+function drawLedAircraft(ctx,px,py,heading,color,shape){
+  const dot=(x,y,c)=>{ ctx.fillStyle=c; ctx.fillRect(x,y,1,1); };
+  const along=d=>{ const a=heading*Math.PI/180; return [px+Math.round(Math.sin(a)*d),py-Math.round(Math.cos(a)*d)]; };
+  const line=(x0,y0,x1,y1)=>{ // Bresenham, as Adafruit GFX draws it
+    const dx=Math.abs(x1-x0),dy=-Math.abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1; let err=dx+dy;
+    for(;;){ dot(x0,y0,color); if(x0===x1&&y0===y1) break; const e2=2*err; if(e2>=dy){err+=dy;x0+=sx;} if(e2<=dx){err+=dx;y0+=sy;} }
+  };
+  const hasHeading=heading!==null&&Number.isFinite(heading);
+  if((shape===1||shape===2)&&hasHeading){
+    let dir=Math.round(heading/45)%8; if(dir<0) dir+=8;
+    const sprite=RADAR_SPRITES[shape][dir&1],turns=Math.floor(dir/2);
+    for(let sy=0;sy<5;sy++) for(let sx=0;sx<5;sx++){
+      if(sprite[sy][sx]!=='#') continue;
+      let rx=sx,ry=sy; for(let t=0;t<turns;t++){ const nx=4-ry; ry=rx; rx=nx; }
+      dot(px+rx-2,py+ry-2,color);
+    }
+    return;
+  }
+  if(hasHeading){
+    if(shape===3){ const fade=[60,38,22,12]; for(let i=3;i>=0;i--){ const [tx,ty]=along(-(2+i)); dot(tx,ty,scaledHex(color,fade[i])); } }
+    else if(shape===4){ for(const d of [2,3]){ const [tx,ty]=along(d); dot(tx,ty,color); } }
+    else if(shape!==1&&shape!==2){ const [tx,ty]=along(-4); line(px,py,tx,ty); }
+  }
+  // fillCircle(r=1) on the panel is a plus sign.
+  ctx.fillStyle=color; ctx.fillRect(px,py-1,1,3); ctx.fillRect(px-1,py,3,1);
+}
+
+// Smooth version for the large area radar: exact heading, scaled to the canvas.
+function drawVectorAircraft(ctx,x,y,heading,color,shape,size){
+  const r=Math.max(3,size*.007);
+  const hasHeading=heading!==null&&Number.isFinite(heading);
+  const a=hasHeading?heading*Math.PI/180:0;
+  const dotAt=()=>{ ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); };
+  if(!hasHeading){ dotAt(); return; }
+  ctx.save(); ctx.translate(x,y); ctx.rotate(a); // nose points to -y after this
+  if(shape===1){
+    const s=Math.max(7,size*.018);
+    ctx.fillStyle=color; ctx.beginPath();
+    ctx.moveTo(0,-s); ctx.lineTo(s*.75,s*.65); ctx.lineTo(0,s*.25); ctx.lineTo(-s*.75,s*.65); ctx.closePath(); ctx.fill();
+  }else if(shape===2){
+    const s=Math.max(8,size*.022);
+    const half=[[0,-1],[.12,-.78],[.12,-.25],[1,.15],[1,.3],[.12,.12],[.1,.6],[.38,.8],[.38,.92],[0,.84]];
+    const pts=half.concat(half.slice(1,-1).reverse().map(([px,py])=>[-px,py]));
+    ctx.fillStyle=color; ctx.beginPath();
+    pts.forEach(([px,py],i)=>i?ctx.lineTo(px*s,py*s):ctx.moveTo(px*s,py*s)); ctx.closePath(); ctx.fill();
+  }else if(shape===3){
+    const trail=Math.max(14,size*.045),g=ctx.createLinearGradient(0,0,0,trail);
+    g.addColorStop(0,color); g.addColorStop(1,color+'00');
+    ctx.strokeStyle=g; ctx.lineWidth=r*1.4; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,trail); ctx.stroke();
+  }else if(shape===4){
+    const tick=Math.max(6,size*.016);
+    ctx.strokeStyle=color; ctx.lineWidth=2; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(0,-r); ctx.lineTo(0,-r-tick); ctx.stroke();
+  }else{
+    const trail=Math.max(9,size*.027);
+    ctx.strokeStyle=color; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,trail); ctx.stroke();
+  }
+  ctx.restore();
+  if(shape!==1&&shape!==2) dotAt();
 }
 
 function renderFlightCards(flights){
@@ -981,7 +1060,7 @@ function renderAreaRadar(data){
   context.fillStyle='rgba(215,232,238,.7)'; context.fillText('N',cx,cy-outerRadius-8);
 
   const aircraft=Array.isArray(data.aircraft)?data.aircraft:[];
-  const points=[];
+  const points=[],shape=radarShape();
   for(const flight of aircraft){
     const lat=Number(flight.lat),lon=Number(flight.lon);
     if(!Number.isFinite(lat)||!Number.isFinite(lon)) continue;
@@ -992,19 +1071,16 @@ function renderAreaRadar(data){
     const angle=bearing*Math.PI/180,r=outerRadius*km/watchKm;
     const x=cx+Math.sin(angle)*r,y=cy-Math.cos(angle)*r;
     const pointColor=!data.usesWatchRing||km<=displayKm?'#7dffbd':km<=outerKm?'#ffd477':'#74e2ee';
-    if(panelMetric(flight.headingDeg)){
-      const heading=(Number(flight.headingDeg)+180)*Math.PI/180,trail=Math.max(9,size*.027);
-      context.strokeStyle=pointColor; context.lineWidth=1.5;
-      context.beginPath(); context.moveTo(x,y); context.lineTo(x+Math.sin(heading)*trail,y-Math.cos(heading)*trail); context.stroke();
-    }
-    context.fillStyle=pointColor; context.beginPath(); context.arc(x,y,Math.max(3,size*.007),0,Math.PI*2); context.fill();
+    drawVectorAircraft(context,x,y,panelMetric(flight.headingDeg)?Number(flight.headingDeg):null,pointColor,shape,size);
     points.push(flight);
   }
 
+  const shapeNote=['trails point opposite heading.','chevrons point along heading.','planes point along heading.',
+    'fading trails point opposite heading.','ticks point along heading.'][shape]||'';
   $('radarState').textContent=`${points.length} aircraft · ${data.source||'position source'}`;
   $('radarNote').textContent=data.usesWatchRing
-    ? 'FR24 watch-ring aircraft are included; trails point opposite heading.'
-    : 'Only aircraft with available positions are shown; trails point opposite heading.';
+    ? 'FR24 watch-ring aircraft are included; '+shapeNote
+    : 'Only aircraft with available positions are shown; '+shapeNote;
   const legend=data.usesWatchRing?[
     ['#58e39a',`Display radius · ${formatDistance(displayKm)}`],
     ['#a5c96b',`Inner edge · ${formatDistance(innerKm)}`],
@@ -1133,6 +1209,8 @@ async function loadSettings(){
   $('radarCenterColor').value = rgbToHex(s.display.radarCenterColorR ?? 200, s.display.radarCenterColorG ?? 200, s.display.radarCenterColorB ?? 200);
   $('radarInnerColor').value = rgbToHex(s.display.radarInnerColorR ?? 0, s.display.radarInnerColorG ?? 0, s.display.radarInnerColorB ?? 0);
   $('radarBandColor').value = rgbToHex(s.display.radarBandColorR ?? 0, s.display.radarBandColorG ?? 0, s.display.radarBandColorB ?? 0);
+  $('radarAircraftShape').value = String(s.display.radarAircraftShape ?? 0);
+  if(!$('radarAircraftShape').value) $('radarAircraftShape').value = '0';
   $('progressColor').value = rgbToHex(s.display.progressColorR, s.display.progressColorG, s.display.progressColorB);
   $('maxFlights').value = s.display.maxFlights;
   $('cycleSeconds').value = s.display.cycleSeconds;
@@ -1229,6 +1307,7 @@ function collect(){
       radarCenterColorR:mr, radarCenterColorG:mg, radarCenterColorB:mb,
       radarInnerColorR:ir, radarInnerColorG:ig, radarInnerColorB:ib,
       radarBandColorR:br, radarBandColorG:bg, radarBandColorB:bb,
+      radarAircraftShape:+$('radarAircraftShape').value,
       progressColorR:pr, progressColorG:pg, progressColorB:pb,
       maxFlights:+$('maxFlights').value, cycleSeconds:+$('cycleSeconds').value,
       fetchIntervalSeconds:+$('fetchIntervalSeconds').value
@@ -1623,6 +1702,9 @@ document.addEventListener('click', ev=>{
 
 for(const id of previewControlIds)
   $(id).addEventListener('input',()=>renderFlightCards(latestFlights));
+$('radarAircraftShape').addEventListener('input',()=>{
+  if($('areaRadarSection').open&&latestRadarData) renderAreaRadar(latestRadarData);
+});
 window.addEventListener('resize',fitPanelPreviews);
 
 // setInterval fired on wall-clock regardless of whether the last tick had

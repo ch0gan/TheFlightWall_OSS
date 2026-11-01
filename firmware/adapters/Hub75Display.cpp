@@ -756,6 +756,46 @@ void Hub75Display::displayFlightCard(const FlightInfo &f, const std::vector<Flig
         drawTrackedChrome(f);
 }
 
+// 5x5 radar sprites, centered on the aircraft's pixel. Each shape has a
+// hand-drawn north and north-east version; the other six directions are those
+// two turned in 90-degree steps, which stays pixel-exact. Rotating a bitmap by
+// an arbitrary angle at this size just smears it, so headings snap to 45 deg.
+// data/index.html carries a copy of these (RADAR_SPRITES) for the web preview.
+static const char *const kChevronN[5] = {"..#..", ".###.", "##.##", "#...#", "....."};
+static const char *const kChevronNE[5] = {".....", "####.", "..##.", "...#.", "...#."};
+static const char *const kPlaneN[5] = {"..#..", ".###.", "#####", "..#..", ".###."};
+static const char *const kPlaneNE[5] = {"....#", "##.#.", "..#..", "##.#.", ".#.#."};
+
+static void drawRadarSprite(Adafruit_GFX *gfx, int16_t cx, int16_t cy, double headingDeg,
+                            const char *const north[5], const char *const northEast[5],
+                            uint16_t color)
+{
+    int dir = (int)lround(headingDeg / 45.0) % 8;
+    if (dir < 0)
+        dir += 8;
+    const char *const *sprite = (dir & 1) ? northEast : north;
+    const int turns = dir / 2; // quarter turns clockwise
+    for (int sy = 0; sy < 5; sy++)
+        for (int sx = 0; sx < 5; sx++)
+        {
+            if (sprite[sy][sx] != '#')
+                continue;
+            int rx = sx, ry = sy;
+            for (int t = 0; t < turns; t++)
+            {
+                const int nx = 4 - ry;
+                ry = rx;
+                rx = nx;
+            }
+            gfx->drawPixel(cx + rx - 2, cy + ry - 2, color);
+        }
+}
+
+static inline uint16_t scaledRgb565(uint8_t r, uint8_t g, uint8_t b, uint8_t pct)
+{
+    return rgb565((uint8_t)(r * pct / 100), (uint8_t)(g * pct / 100), (uint8_t)(b * pct / 100));
+}
+
 void Hub75Display::drawMiniRadar(int16_t x, int16_t y, const FlightInfo &current,
                                  const std::vector<FlightInfo> &flights)
 {
@@ -783,6 +823,7 @@ void Hub75Display::drawMiniRadar(int16_t x, int16_t y, const FlightInfo &current
     const double displayRadiusKm = g_settings.radiusKm;
     const double radarRadiusKm = displayRadiusKm;
     const double innerBandKm = min(displayRadiusKm, max(0.0, g_settings.fr24InnerBandKm));
+    const RadarAircraftShape shape = (RadarAircraftShape)g_settings.radarAircraftShape;
 
     _canvas->fillRect(x, y, box, box, 0);
     if (radarRadiusKm > 0)
@@ -805,13 +846,62 @@ void Hub75Display::drawMiniRadar(int16_t x, int16_t y, const FlightInfo &current
         const int16_t px = x + center + (int16_t)lround(sin(bearing) * distance);
         const int16_t py = y + center - (int16_t)lround(cos(bearing) * distance);
         const uint16_t color = isCurrent ? currentColor : aircraftColor;
-        if (renderable(heading))
+        const bool hasHeading = renderable(heading);
+        // Pixel `d` steps along the heading (d < 0 is behind the aircraft).
+        auto along = [&](double d, int16_t &ox, int16_t &oy)
         {
-            const double trail = degreesToRadians(heading + 180.0);
-            _canvas->drawLine(px, py,
-                              px + (int16_t)lround(sin(trail) * 4.0),
-                              py - (int16_t)lround(cos(trail) * 4.0),
-                              color);
+            const double a = degreesToRadians(heading);
+            ox = px + (int16_t)lround(sin(a) * d);
+            oy = py - (int16_t)lround(cos(a) * d);
+        };
+        switch (shape)
+        {
+        case RadarAircraftShape::Chevron:
+        case RadarAircraftShape::Plane:
+            if (hasHeading)
+            {
+                if (shape == RadarAircraftShape::Chevron)
+                    drawRadarSprite(_canvas, px, py, heading, kChevronN, kChevronNE, color);
+                else
+                    drawRadarSprite(_canvas, px, py, heading, kPlaneN, kPlaneNE, color);
+                return;
+            }
+            break; // no heading: plain dot below
+        case RadarAircraftShape::Comet:
+            if (hasHeading)
+            {
+                const uint8_t r = isCurrent ? g_settings.radarActiveColorR : g_settings.radarAircraftColorR;
+                const uint8_t g = isCurrent ? g_settings.radarActiveColorG : g_settings.radarAircraftColorG;
+                const uint8_t b = isCurrent ? g_settings.radarActiveColorB : g_settings.radarAircraftColorB;
+                static const uint8_t kFade[4] = {60, 38, 22, 12}; // % brightness, nearest first
+                for (int i = 3; i >= 0; i--) // far to near, so brighter pixels win overlaps
+                {
+                    int16_t tx, ty;
+                    along(-(2.0 + i), tx, ty);
+                    _canvas->drawPixel(tx, ty, scaledRgb565(r, g, b, kFade[i]));
+                }
+            }
+            break;
+        case RadarAircraftShape::NoseTick:
+            if (hasHeading)
+            {
+                for (double d = 2.0; d <= 3.0; d += 1.0)
+                {
+                    int16_t tx, ty;
+                    along(d, tx, ty);
+                    _canvas->drawPixel(tx, ty, color);
+                }
+            }
+            break;
+        case RadarAircraftShape::DotTrail:
+        default:
+            if (hasHeading)
+            {
+                int16_t tx, ty;
+                along(-4.0, tx, ty);
+                _canvas->drawLine(px, py, tx, ty, color);
+            }
+            break;
         }
         _canvas->fillCircle(px, py, 1, color);
     };

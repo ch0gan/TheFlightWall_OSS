@@ -40,6 +40,18 @@ enum class TrackingMode : uint8_t
     Flights = 1 // Track a specific list of flights by ident / callsign / tail
 };
 
+// How aircraft are drawn on the radar (LED mini radar and the web UI radars).
+// Stored as its number; anything out of range loads as DotTrail.
+enum class RadarAircraftShape : uint8_t
+{
+    DotTrail = 0, // dot with a line trailing behind (original look)
+    Chevron = 1,  // arrowhead pointing along the heading
+    Plane = 2,    // small top-view plane silhouette
+    Comet = 3,    // dot with a trail that fades out behind it
+    NoseTick = 4  // dot with a short tick pointing forward
+};
+constexpr uint8_t RADAR_AIRCRAFT_SHAPE_COUNT = 5;
+
 enum class EnrichmentSource : uint8_t
 {
     Adsbdb = 0, // free, no key (adsbdb.com)
@@ -210,6 +222,7 @@ struct Settings
     uint8_t radarBandColorR = 0;
     uint8_t radarBandColorG = 0;
     uint8_t radarBandColorB = 0;
+    uint8_t radarAircraftShape = (uint8_t)RadarAircraftShape::DotTrail;
     // Filled part of the progress bar (and the ETA text over it).
     uint8_t progressColorR = 0;
     uint8_t progressColorG = 210;
