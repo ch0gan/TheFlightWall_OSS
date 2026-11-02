@@ -12,6 +12,195 @@
 #include <cstring>
 #include "CallsignUtils.h"
 
+enum class AircraftIconClass : unsigned char
+{
+    Unknown,
+    Light,       // light/GA plane that is NOT a known Cessna (Piper, Cirrus, ...)
+    Cessna,      // a known Cessna piston/turboprop (Citations are BusinessJet)
+    BusinessJet,
+    Helicopter
+};
+
+inline bool aircraftTextContains(const char *text, const char *word)
+{
+    if (!text || !word)
+        return false;
+    const size_t wordLength = std::strlen(word);
+    for (const char *start = text; *start; ++start)
+    {
+        size_t i = 0;
+        while (i < wordLength && start[i] &&
+               std::tolower((unsigned char)start[i]) == std::tolower((unsigned char)word[i]))
+            ++i;
+        if (i == wordLength)
+            return true;
+    }
+    return false;
+}
+
+inline bool aircraftTypeStartsWith(const char *type, const char *prefix)
+{
+    if (!type || !prefix)
+        return false;
+    while (*type == ' ')
+        ++type;
+    for (size_t i = 0; prefix[i]; ++i)
+        if (!type[i] || std::toupper((unsigned char)type[i]) != prefix[i])
+            return false;
+    return true;
+}
+
+inline AircraftIconClass classifyAircraftIcon(const char *typeCode,
+                                               const char *manufacturer = nullptr,
+                                               const char *model = nullptr)
+{
+    if (aircraftTextContains(manufacturer, "helicopter") ||
+        aircraftTextContains(manufacturer, "robinson") ||
+        aircraftTextContains(manufacturer, "sikorsky") ||
+        aircraftTextContains(manufacturer, "leonardo") ||
+        aircraftTextContains(manufacturer, "eurocopter") ||
+        aircraftTextContains(manufacturer, "bell helicopter"))
+        return AircraftIconClass::Helicopter;
+
+    if (aircraftTypeStartsWith(typeCode, "R22") || aircraftTypeStartsWith(typeCode, "R44") ||
+        aircraftTypeStartsWith(typeCode, "R66") || aircraftTypeStartsWith(typeCode, "B06") ||
+        aircraftTypeStartsWith(typeCode, "B407") || aircraftTypeStartsWith(typeCode, "B429") ||
+        aircraftTypeStartsWith(typeCode, "EC30") || aircraftTypeStartsWith(typeCode, "EC35") ||
+        aircraftTypeStartsWith(typeCode, "EC45") || aircraftTypeStartsWith(typeCode, "EC55") ||
+        aircraftTypeStartsWith(typeCode, "AS50") || aircraftTypeStartsWith(typeCode, "AS55") ||
+        aircraftTypeStartsWith(typeCode, "AS65") || aircraftTypeStartsWith(typeCode, "S76") ||
+        aircraftTypeStartsWith(typeCode, "S92") || aircraftTypeStartsWith(typeCode, "H125") ||
+        aircraftTypeStartsWith(typeCode, "H130") || aircraftTypeStartsWith(typeCode, "H135") ||
+        aircraftTypeStartsWith(typeCode, "H145") || aircraftTypeStartsWith(typeCode, "H160") ||
+        aircraftTypeStartsWith(typeCode, "H175") || aircraftTypeStartsWith(typeCode, "H225"))
+        return AircraftIconClass::Helicopter;
+
+    if (aircraftTextContains(manufacturer, "gulfstream") ||
+        aircraftTextContains(manufacturer, "bombardier") ||
+        aircraftTextContains(manufacturer, "dassault aviation") ||
+        aircraftTextContains(manufacturer, "learjet") ||
+        aircraftTextContains(manufacturer, "hawker") ||
+        aircraftTextContains(model, "citation") || aircraftTextContains(model, "gulfstream") ||
+        aircraftTextContains(model, "learjet") || aircraftTextContains(model, "falcon") ||
+        aircraftTextContains(model, "challenger") || aircraftTextContains(model, "global express"))
+        return AircraftIconClass::BusinessJet;
+
+    if (aircraftTypeStartsWith(typeCode, "GLF") || aircraftTypeStartsWith(typeCode, "G150") ||
+        aircraftTypeStartsWith(typeCode, "G280") || aircraftTypeStartsWith(typeCode, "GLEX") ||
+        aircraftTypeStartsWith(typeCode, "G650") || aircraftTypeStartsWith(typeCode, "G700") ||
+        aircraftTypeStartsWith(typeCode, "C25") || aircraftTypeStartsWith(typeCode, "C56") ||
+        aircraftTypeStartsWith(typeCode, "C68") || aircraftTypeStartsWith(typeCode, "C700") ||
+        aircraftTypeStartsWith(typeCode, "CL30") || aircraftTypeStartsWith(typeCode, "CL35") ||
+        aircraftTypeStartsWith(typeCode, "CL60") || aircraftTypeStartsWith(typeCode, "LJ") ||
+        aircraftTypeStartsWith(typeCode, "FA50") || aircraftTypeStartsWith(typeCode, "FA7") ||
+        aircraftTypeStartsWith(typeCode, "FA8") || aircraftTypeStartsWith(typeCode, "F2TH") ||
+        aircraftTypeStartsWith(typeCode, "H25") || aircraftTypeStartsWith(typeCode, "PC24"))
+        return AircraftIconClass::BusinessJet;
+
+    // Cessna before the general light-aircraft checks, and after the business
+    // jet checks above, which is what keeps a Citation (also "Cessna") a jet.
+    // Type codes are an explicit list rather than "C + digits": C130, C17 and
+    // C5 are military transports, not Cessnas.
+    if (aircraftTextContains(manufacturer, "cessna") || aircraftTextContains(model, "cessna") ||
+        aircraftTextContains(model, "skyhawk") || aircraftTextContains(model, "skylane") ||
+        aircraftTextContains(model, "stationair") || aircraftTextContains(model, "centurion") ||
+        aircraftTextContains(model, "caravan"))
+        return AircraftIconClass::Cessna;
+    {
+        static const char *const kCessnaTypes[] = {
+            "C150", "C152", "C162", "C170", "C172", "C175", "C177", "C180", "C182",
+            "C185", "C195", "C205", "C206", "C207", "C208", "C210", "P210", "T206",
+            "T210", "C72R", "C77R", "C82R", "C303", "C310", "C320", "C335", "C336",
+            "C337", "C340", "C402", "C404", "C411", "C414", "C421", "C425", "C441",
+        };
+        for (const char *t : kCessnaTypes)
+            if (aircraftTypeStartsWith(typeCode, t))
+                return AircraftIconClass::Cessna;
+    }
+
+    if (aircraftTextContains(manufacturer, "piper") ||
+        aircraftTextContains(manufacturer, "cirrus") || aircraftTextContains(manufacturer, "diamond") ||
+        aircraftTextContains(manufacturer, "mooney") || aircraftTextContains(manufacturer, "beechcraft") ||
+        aircraftTextContains(manufacturer, "tecnam") || aircraftTextContains(manufacturer, "robin aircraft") ||
+        aircraftTextContains(manufacturer, "grumman") || aircraftTextContains(manufacturer, "american general") ||
+        aircraftTextContains(model, "aa-5") || aircraftTextContains(model, "aa5") ||
+        aircraftTextContains(model, "tiger"))
+        return AircraftIconClass::Light;
+
+    if (aircraftTypeStartsWith(typeCode, "AA5") || aircraftTypeStartsWith(typeCode, "PA2") ||
+        aircraftTypeStartsWith(typeCode, "PA3") || aircraftTypeStartsWith(typeCode, "PA4") ||
+        aircraftTypeStartsWith(typeCode, "PA46") || aircraftTypeStartsWith(typeCode, "P28") ||
+        aircraftTypeStartsWith(typeCode, "SR20") || aircraftTypeStartsWith(typeCode, "SR22") ||
+        aircraftTypeStartsWith(typeCode, "DA20") || aircraftTypeStartsWith(typeCode, "DA40") ||
+        aircraftTypeStartsWith(typeCode, "DA42") || aircraftTypeStartsWith(typeCode, "BE33") ||
+        aircraftTypeStartsWith(typeCode, "BE35") || aircraftTypeStartsWith(typeCode, "BE36") ||
+        aircraftTypeStartsWith(typeCode, "BE55") || aircraftTypeStartsWith(typeCode, "BE58") ||
+        aircraftTypeStartsWith(typeCode, "M20P"))
+        return AircraftIconClass::Light;
+
+    return AircraftIconClass::Unknown;
+}
+
+inline const char *aircraftIconClassName(AircraftIconClass iconClass)
+{
+    switch (iconClass)
+    {
+    case AircraftIconClass::Light:       return "light";
+    case AircraftIconClass::Cessna:      return "cessna";
+    case AircraftIconClass::BusinessJet: return "business";
+    case AircraftIconClass::Helicopter:  return "heli";
+    case AircraftIconClass::Unknown:     break;
+    }
+    return "";
+}
+
+// The generic tile for an aircraft class name (aircraftIconClassName's output),
+// or nullptr when the class has no tile of its own.
+inline const char *aircraftClassTileKey(const char *iconClass)
+{
+    if (!iconClass)
+        return nullptr;
+    if (std::strcmp(iconClass, "cessna") == 0)   return "_CESSNA";
+    if (std::strcmp(iconClass, "light") == 0)    return "_LIGHT";
+    if (std::strcmp(iconClass, "business") == 0) return "_BIZJET";
+    return nullptr;
+}
+
+// Logo keys to try for a flight, best first; the caller draws the first one
+// that exists. Shared by the LED (Hub75Display) and the web preview
+// (/api/logo) so the two cannot disagree.
+//   1. helicopter              -> _HELI
+//   2. tail-number (private)   -> its class tile if the type is known, else
+//                                 _PRIVATE (the "unknown aircraft" icon)
+//   3. the operator's own tile
+//   4. cargo                   -> _CARGO
+//   5. class tile (Cessna / light / business jet) for an airline-callsign
+//      flight whose operator has no tile
+// Returns the count written to out (at most kMaxLogoCandidates).
+constexpr std::size_t kMaxLogoCandidates = 5;
+inline std::size_t logoCandidates(bool helicopter, bool isPrivate, const char *operatorIcao,
+                                  bool cargo, const char *iconClass,
+                                  const char *out[kMaxLogoCandidates])
+{
+    std::size_t n = 0;
+    const char *classKey = aircraftClassTileKey(iconClass);
+    if (helicopter)
+        out[n++] = "_HELI";
+    else if (isPrivate)
+    {
+        if (classKey)
+            out[n++] = classKey;
+        out[n++] = "_PRIVATE";
+    }
+    if (operatorIcao && operatorIcao[0])
+        out[n++] = operatorIcao;
+    if (cargo)
+        out[n++] = "_CARGO";
+    if (classKey && !isPrivate)
+        out[n++] = classKey;
+    return n;
+}
+
 // isTailNumber: positive "this is an aircraft registration, not an airline
 // flight" test. Conservative — unknown/ambiguous input is NOT auto-private.
 inline bool isTailNumber(const char *callsign)

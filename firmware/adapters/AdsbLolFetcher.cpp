@@ -68,7 +68,31 @@ bool AdsbLolFetcher::fetchStateVectors(double centerLat,
 
     String url = String(kHost) + "/v2/lat/" + String(centerLat, 4) +
                  "/lon/" + String(centerLon, 4) + "/dist/" + String(radiusNm);
+    return fetchUrl(url, centerLat, centerLon, outStateVectors);
+}
 
+bool AdsbLolFetcher::fetchByIdent(const String &ident,
+                                  double fromLat,
+                                  double fromLon,
+                                  std::vector<StateVector> &outStateVectors)
+{
+    String id = ident;
+    id.trim();
+    if (id.length() == 0)
+        return false;
+    // Keep the path segment safe: callsigns/tails are alphanumeric (plus '-').
+    for (size_t i = 0; i < id.length(); i++)
+    {
+        char c = id[i];
+        if (!isalnum((unsigned char)c) && c != '-')
+            return false;
+    }
+    return fetchUrl(String(kHost) + "/v2/callsign/" + id, fromLat, fromLon, outStateVectors);
+}
+
+bool AdsbLolFetcher::fetchUrl(const String &url, double centerLat, double centerLon,
+                              std::vector<StateVector> &outStateVectors)
+{
     HTTPClient http;
     const unsigned long t0 = millis();
     http.begin(secureClient(), url);
@@ -232,6 +256,6 @@ bool AdsbLolFetcher::fetchStateVectors(double centerLat,
         outStateVectors.push_back(s);
     }
 
-    Serial.printf("[fetch] adsb.lol: %u flights in radius\n", (unsigned)outStateVectors.size());
+    Serial.printf("[fetch] adsb.lol: %u flights\n", (unsigned)outStateVectors.size());
     return true;
 }

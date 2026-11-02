@@ -31,6 +31,9 @@ namespace FirmwareUpdater
     /** What this build is, from git via tools/inject_version.py. */
     const char *runningVersion();
 
+    /** UTC Unix timestamp when the running OTA image passed validation, or 0. */
+    uint64_t installedAt();
+
     /**
      * Tell the bootloader the running image works, cancelling the rollback it
      * would otherwise perform on the next reboot.
@@ -97,4 +100,9 @@ namespace FirmwareUpdater
      * gets a value back is looking at an error every time.
      */
     ApplyResult apply(const String &serverUrl, const Available &a);
+    bool beginLocalUpload(const uint8_t *signature, size_t signatureSize,
+                          const String &target, size_t imageSize, String &error);
+    size_t writeLocalUpload(const uint8_t *data, size_t size);
+    ApplyResult finishLocalUpload();
+    void abortLocalUpload();
 }

@@ -40,12 +40,25 @@ public:
                            double centerLon,
                            double radiusKm,
                            std::vector<StateVector> &outStateVectors) override;
+    WatchBandCounts lastWatchBandCounts() const override { return m_watchBandCounts; }
+
+    // Search by callsign/flight number/tail, then read the live row from a tiny
+    // feed.js box around the hit. Not radius-bound.
+    bool fetchByIdent(const String &ident,
+                      double fromLat,
+                      double fromLon,
+                      std::vector<StateVector> &outStateVectors) override;
 
 private:
     // Own TLS client with a bounded handshake (see OpenSkyFetcher for why this is
     // load-bearing against the loop watchdog, not a nicety).
     WiFiClientSecure m_secure;
     bool m_secureInit = false;
+    // When set, parseFeedInto keeps only the feed row with this FR24 flight id.
+    String m_wantId;
+    WatchBandCounts m_watchBandCounts;
+    // Fill telemetry on `s` from the flight's detail record (best effort).
+    void readDetail(const String &flightId, StateVector &s);
     WiFiClientSecure &secureClient();
 
     // Parse feed.js (a JSON object keyed by opaque FR24 flight id) into state

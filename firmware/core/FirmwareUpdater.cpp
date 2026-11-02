@@ -2,6 +2,7 @@
 #include "config/FirmwareSigningKey.h"
 
 #include <HTTPClient.h>
+#include <Preferences.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <Update.h>
@@ -9,6 +10,7 @@
 #include <mbedtls/base64.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/sha256.h>
+#include <time.h>
 
 #ifndef FW_VERSION
 #define FW_VERSION "unknown"
@@ -16,6 +18,11 @@
 
 namespace
 {
+    mbedtls_sha256_context localUploadHash;
+    uint8_t localUploadSignature[128];
+    size_t localUploadSignatureSize = 0;
+    bool localUploadActive = false;
+
     WiFiClientSecure &secureClient()
     {
         static WiFiClientSecure client;
@@ -113,6 +120,27 @@ namespace
         }
         return true;
     }
+
+    void recordInstallDate(bool newlyValidated)
+    {
+        Preferences prefs;
+        if (!prefs.begin("fwmeta", false))
+            return;
+
+        if (newlyValidated && !prefs.getBool("date_pending", false))
+            prefs.putBool("date_pending", true);
+
+        if (prefs.getBool("date_pending", false))
+        {
+            const time_t now = time(nullptr);
+            if (now >= 1700000000)
+            {
+                prefs.putULong64("installed_at", static_cast<uint64_t>(now));
+                prefs.remove("date_pending");
+            }
+        }
+        prefs.end();
+    }
 }
 
 namespace FirmwareUpdater
@@ -120,6 +148,16 @@ namespace FirmwareUpdater
     const char *runningVersion()
     {
         return FW_VERSION;
+    }
+
+    uint64_t installedAt()
+    {
+        Preferences prefs;
+        if (!prefs.begin("fwmeta", true))
+            return 0;
+        const uint64_t timestamp = prefs.getULong64("installed_at", 0);
+        prefs.end();
+        return timestamp;
     }
 
     bool awaitingValidation()
@@ -134,9 +172,15 @@ namespace FirmwareUpdater
     void markRunningImageValid()
     {
         if (!awaitingValidation())
+        {
+            recordInstallDate(false);
             return;
+        }
         if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK)
+        {
             Serial.println("[ota] running image marked valid; rollback cancelled");
+            recordInstallDate(true);
+        }
         else
             Serial.println("[ota] could not mark the image valid -- it will roll back");
     }
@@ -333,5 +377,83 @@ namespace FirmwareUpdater
         // Unreachable in practice; a caller that sees this got an error.
         r.error = "restart did not happen";
         return r;
+    }
+
+    bool beginLocalUpload(const uint8_t *signature, size_t signatureSize,
+                          const String &target, size_t imageSize, String &error)
+    {
+        if (target != buildTarget())
+        {
+            error = String("image target '") + target + "' does not match this board ('" + buildTarget() + "')";
+            return false;
+        }
+        if (!signature || signatureSize == 0 || signatureSize > sizeof(localUploadSignature))
+        {
+            error = "invalid firmware signature";
+            return false;
+        }
+        if (!Update.begin(imageSize ? imageSize : UPDATE_SIZE_UNKNOWN, U_FLASH))
+        {
+            error = String("cannot start update: ") + Update.errorString();
+            return false;
+        }
+
+        memcpy(localUploadSignature, signature, signatureSize);
+        localUploadSignatureSize = signatureSize;
+        mbedtls_sha256_init(&localUploadHash);
+        mbedtls_sha256_starts(&localUploadHash, 0);
+        localUploadActive = true;
+        return true;
+    }
+
+    size_t writeLocalUpload(const uint8_t *data, size_t size)
+    {
+        if (!localUploadActive)
+            return 0;
+        const size_t written = Update.write(const_cast<uint8_t *>(data), size);
+        if (written == size)
+            mbedtls_sha256_update(&localUploadHash, data, size);
+        return written;
+    }
+
+    ApplyResult finishLocalUpload()
+    {
+        ApplyResult result;
+        if (!localUploadActive)
+        {
+            result.error = "no firmware upload in progress";
+            return result;
+        }
+
+        uint8_t hash[32];
+        mbedtls_sha256_finish(&localUploadHash, hash);
+        mbedtls_sha256_free(&localUploadHash);
+        localUploadActive = false;
+
+        String error;
+        if (!verifySignature(hash, localUploadSignature, localUploadSignatureSize, error))
+        {
+            Update.abort();
+            result.error = error;
+            return result;
+        }
+        if (!Update.end(true))
+        {
+            result.error = String("could not finalise: ") + Update.errorString();
+            return result;
+        }
+
+        Serial.println("[ota] local firmware signature verified");
+        result.ok = true;
+        return result;
+    }
+
+    void abortLocalUpload()
+    {
+        if (!localUploadActive)
+            return;
+        mbedtls_sha256_free(&localUploadHash);
+        localUploadActive = false;
+        Update.abort();
     }
 }

@@ -60,6 +60,15 @@ int main() {
     CHECK(fetchIntervalMs(400000UL, 4, 0) == 400000UL);
     CHECK(fetchIntervalMs(400000UL, 0, kEmptyConfirmCycles + 1) == 400000UL);
 
+    // FR24 Area mode: long quiet interval, faster as the nearest plane approaches.
+    CHECK(fr24ApproachIntervalMs(-1.0, 20.0, 10.0, 5.0, 120, 30, 15, 10) == 120000UL);
+    CHECK(fr24ApproachIntervalMs(25.0, 20.0, 10.0, 5.0, 120, 30, 15, 10) == 120000UL);
+    CHECK(fr24ApproachIntervalMs(15.0, 20.0, 10.0, 5.0, 120, 30, 15, 10) == 30000UL);
+    CHECK(fr24ApproachIntervalMs(10.0, 20.0, 10.0, 5.0, 120, 30, 15, 10) == 15000UL);
+    CHECK(fr24ApproachIntervalMs(5.0, 20.0, 10.0, 5.0, 120, 30, 15, 10) == 10000UL);
+    CHECK(fr24ApproachIntervalMs(2.5, 20.0, 10.0, 5.0, 120, 30, 15, 10) == 10000UL);
+    CHECK(fr24ApproachIntervalMs(2.5, 20.0, 10.0, 5.0, 0, 0, 0, 0) == 5000UL);
+
     // And a pathological configured interval must not wrap into a short one.
     // Settings applies no upper clamp (only an HTML min="5" hint).
     for (unsigned long b : {5000UL, 30000UL, 400000UL, 4000000000UL})

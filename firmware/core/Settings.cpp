@@ -244,7 +244,15 @@ String Settings::serialize(bool redactSecrets) const
     track["mode"] = (mode == TrackingMode::Flights) ? "flights" : "area";
     track["centerLat"] = centerLat;
     track["centerLon"] = centerLon;
+    track["distanceUnit"] = distanceUnit;
     track["radiusKm"] = radiusKm;
+    track["fr24WatchRadiusKm"] = fr24WatchRadiusKm;
+    track["fr24OuterBandKm"] = fr24OuterBandKm;
+    track["fr24InnerBandKm"] = fr24InnerBandKm;
+    track["fr24NoAircraftIntervalSeconds"] = fr24NoAircraftIntervalSeconds;
+    track["fr24OuterBandIntervalSeconds"] = fr24OuterBandIntervalSeconds;
+    track["fr24MiddleBandIntervalSeconds"] = fr24MiddleBandIntervalSeconds;
+    track["fr24InnerBandIntervalSeconds"] = fr24InnerBandIntervalSeconds;
     track["autoLocateOnBoot"] = autoLocateOnBoot;
     JsonArray flights = track.createNestedArray("trackedFlights");
     for (const auto &id : trackedFlights)
@@ -255,12 +263,35 @@ String Settings::serialize(bool redactSecrets) const
     disp["textColorR"] = textColorR;
     disp["textColorG"] = textColorG;
     disp["textColorB"] = textColorB;
+    disp["radarColorR"] = radarColorR;
+    disp["radarColorG"] = radarColorG;
+    disp["radarColorB"] = radarColorB;
+    disp["radarActiveColorR"] = radarActiveColorR;
+    disp["radarActiveColorG"] = radarActiveColorG;
+    disp["radarActiveColorB"] = radarActiveColorB;
+    disp["radarAircraftColorR"] = radarAircraftColorR;
+    disp["radarAircraftColorG"] = radarAircraftColorG;
+    disp["radarAircraftColorB"] = radarAircraftColorB;
+    disp["radarCenterColorR"] = radarCenterColorR;
+    disp["radarCenterColorG"] = radarCenterColorG;
+    disp["radarCenterColorB"] = radarCenterColorB;
+    disp["radarInnerColorR"] = radarInnerColorR;
+    disp["radarInnerColorG"] = radarInnerColorG;
+    disp["radarInnerColorB"] = radarInnerColorB;
+    disp["radarBandColorR"] = radarBandColorR;
+    disp["radarBandColorG"] = radarBandColorG;
+    disp["radarBandColorB"] = radarBandColorB;
+    disp["radarAircraftShape"] = radarAircraftShape;
+    disp["progressColorR"] = progressColorR;
+    disp["progressColorG"] = progressColorG;
+    disp["progressColorB"] = progressColorB;
     disp["maxFlights"] = maxFlights;
     disp["cycleSeconds"] = cycleSeconds;
     disp["fetchIntervalSeconds"] = fetchIntervalSeconds;
 
     JsonObject lay = doc.createNestedObject("layout");
     lay["showAirlineFlight"] = layout.showAirlineFlight;
+    lay["showLogo"] = layout.showLogo;
     lay["showRoute"] = layout.showRoute;
     lay["showAircraft"] = layout.showAircraft;
     lay["showAltitude"] = layout.showAltitude;
@@ -268,6 +299,9 @@ String Settings::serialize(bool redactSecrets) const
     lay["showHeading"] = layout.showHeading;
     lay["showVerticalRate"] = layout.showVerticalRate;
     lay["showEta"] = layout.showEta;
+    lay["showDistance"] = layout.showDistance;
+    lay["showRadar"] = layout.showRadar;
+    lay["showProgressBar"] = layout.showProgressBar;
     lay["flightNumberOverVr"] = layout.flightNumberOverVr;
     lay["noFlightsMode"] = layout.noFlightsMode;
 
@@ -400,8 +434,28 @@ bool Settings::fromJson(const String &in)
             centerLat = track["centerLat"].as<double>();
         if (track.containsKey("centerLon"))
             centerLon = track["centerLon"].as<double>();
+        if (track.containsKey("distanceUnit"))
+        {
+            const String unit = track["distanceUnit"].as<String>();
+            if (unit == "km" || unit == "mi" || unit == "nm")
+                distanceUnit = unit;
+        }
         if (track.containsKey("radiusKm"))
             radiusKm = track["radiusKm"].as<double>();
+        if (track.containsKey("fr24WatchRadiusKm"))
+            fr24WatchRadiusKm = track["fr24WatchRadiusKm"].as<double>();
+        if (track.containsKey("fr24OuterBandKm"))
+            fr24OuterBandKm = track["fr24OuterBandKm"].as<double>();
+        if (track.containsKey("fr24InnerBandKm"))
+            fr24InnerBandKm = track["fr24InnerBandKm"].as<double>();
+        if (track.containsKey("fr24NoAircraftIntervalSeconds"))
+            fr24NoAircraftIntervalSeconds = track["fr24NoAircraftIntervalSeconds"].as<uint32_t>();
+        if (track.containsKey("fr24OuterBandIntervalSeconds"))
+            fr24OuterBandIntervalSeconds = track["fr24OuterBandIntervalSeconds"].as<uint32_t>();
+        if (track.containsKey("fr24MiddleBandIntervalSeconds"))
+            fr24MiddleBandIntervalSeconds = track["fr24MiddleBandIntervalSeconds"].as<uint32_t>();
+        if (track.containsKey("fr24InnerBandIntervalSeconds"))
+            fr24InnerBandIntervalSeconds = track["fr24InnerBandIntervalSeconds"].as<uint32_t>();
         if (track.containsKey("autoLocateOnBoot"))
             autoLocateOnBoot = track["autoLocateOnBoot"].as<bool>();
         if (track.containsKey("trackedFlights"))
@@ -419,6 +473,55 @@ bool Settings::fromJson(const String &in)
             textColorG = disp["textColorG"].as<uint8_t>();
         if (disp.containsKey("textColorB"))
             textColorB = disp["textColorB"].as<uint8_t>();
+        if (disp.containsKey("radarColorR"))
+            radarColorR = disp["radarColorR"].as<uint8_t>();
+        if (disp.containsKey("radarColorG"))
+            radarColorG = disp["radarColorG"].as<uint8_t>();
+        if (disp.containsKey("radarColorB"))
+            radarColorB = disp["radarColorB"].as<uint8_t>();
+        if (disp.containsKey("radarActiveColorR"))
+            radarActiveColorR = disp["radarActiveColorR"].as<uint8_t>();
+        if (disp.containsKey("radarActiveColorG"))
+            radarActiveColorG = disp["radarActiveColorG"].as<uint8_t>();
+        if (disp.containsKey("radarActiveColorB"))
+            radarActiveColorB = disp["radarActiveColorB"].as<uint8_t>();
+        if (disp.containsKey("radarAircraftColorR"))
+            radarAircraftColorR = disp["radarAircraftColorR"].as<uint8_t>();
+        if (disp.containsKey("radarAircraftColorG"))
+            radarAircraftColorG = disp["radarAircraftColorG"].as<uint8_t>();
+        if (disp.containsKey("radarAircraftColorB"))
+            radarAircraftColorB = disp["radarAircraftColorB"].as<uint8_t>();
+        if (disp.containsKey("radarCenterColorR"))
+            radarCenterColorR = disp["radarCenterColorR"].as<uint8_t>();
+        if (disp.containsKey("radarCenterColorG"))
+            radarCenterColorG = disp["radarCenterColorG"].as<uint8_t>();
+        if (disp.containsKey("radarCenterColorB"))
+            radarCenterColorB = disp["radarCenterColorB"].as<uint8_t>();
+        if (disp.containsKey("radarInnerColorR"))
+            radarInnerColorR = disp["radarInnerColorR"].as<uint8_t>();
+        if (disp.containsKey("radarInnerColorG"))
+            radarInnerColorG = disp["radarInnerColorG"].as<uint8_t>();
+        if (disp.containsKey("radarInnerColorB"))
+            radarInnerColorB = disp["radarInnerColorB"].as<uint8_t>();
+        if (disp.containsKey("radarBandColorR"))
+            radarBandColorR = disp["radarBandColorR"].as<uint8_t>();
+        if (disp.containsKey("radarBandColorG"))
+            radarBandColorG = disp["radarBandColorG"].as<uint8_t>();
+        if (disp.containsKey("radarBandColorB"))
+            radarBandColorB = disp["radarBandColorB"].as<uint8_t>();
+        if (disp.containsKey("radarAircraftShape"))
+        {
+            const int shape = disp["radarAircraftShape"].as<int>();
+            radarAircraftShape = (shape >= 0 && shape < RADAR_AIRCRAFT_SHAPE_COUNT)
+                                     ? (uint8_t)shape
+                                     : (uint8_t)RadarAircraftShape::DotTrail;
+        }
+        if (disp.containsKey("progressColorR"))
+            progressColorR = disp["progressColorR"].as<uint8_t>();
+        if (disp.containsKey("progressColorG"))
+            progressColorG = disp["progressColorG"].as<uint8_t>();
+        if (disp.containsKey("progressColorB"))
+            progressColorB = disp["progressColorB"].as<uint8_t>();
         if (disp.containsKey("maxFlights"))
             maxFlights = disp["maxFlights"].as<uint8_t>();
         if (disp.containsKey("cycleSeconds"))
@@ -431,6 +534,7 @@ bool Settings::fromJson(const String &in)
     {
         JsonObject lay = doc["layout"];
         layout.showAirlineFlight = lay["showAirlineFlight"] | layout.showAirlineFlight;
+        layout.showLogo = lay["showLogo"] | layout.showLogo;
         layout.showRoute = lay["showRoute"] | layout.showRoute;
         layout.showAircraft = lay["showAircraft"] | layout.showAircraft;
         layout.showAltitude = lay["showAltitude"] | layout.showAltitude;
@@ -438,6 +542,9 @@ bool Settings::fromJson(const String &in)
         layout.showHeading = lay["showHeading"] | layout.showHeading;
         layout.showVerticalRate = lay["showVerticalRate"] | layout.showVerticalRate;
         layout.showEta = lay["showEta"] | layout.showEta;
+        layout.showDistance = lay["showDistance"] | layout.showDistance;
+        layout.showRadar = lay["showRadar"] | layout.showRadar;
+        layout.showProgressBar = lay["showProgressBar"] | layout.showProgressBar;
         layout.flightNumberOverVr = lay["flightNumberOverVr"] | layout.flightNumberOverVr;
         if (lay.containsKey("noFlightsMode"))
             layout.noFlightsMode = lay["noFlightsMode"].as<String>();

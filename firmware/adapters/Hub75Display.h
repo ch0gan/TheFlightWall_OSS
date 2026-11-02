@@ -4,6 +4,7 @@
 #include <vector>
 #include "interfaces/BaseDisplay.h"
 #include "utils/LruCache.h"
+#include "models/StateVector.h"
 
 class MatrixPanel_I2S_DMA;
 class GFXcanvas16;
@@ -21,6 +22,7 @@ public:
     bool initialize() override;
     void clear() override;
     void displayFlights(const std::vector<FlightInfo> &flights) override;
+    void setRadarStates(const std::vector<StateVector> *states) { _radarStates = states; }
     void displayMessage(const String &message);
 
     // Halt the HUB75 DMA engine. The panel goes dark and STAYS dark until the
@@ -63,6 +65,7 @@ public:
 private:
     MatrixPanel_I2S_DMA *_panel = nullptr;
     GFXcanvas16 *_canvas = nullptr;
+    const std::vector<StateVector> *_radarStates = nullptr;
 
     uint16_t _matrixWidth = 0;
     uint16_t _matrixHeight = 0;
@@ -89,8 +92,9 @@ private:
     unsigned long _toastUntilMs = 0;
     void drawToastIfActive();
 
-    // Decoded logo tiles (from /logos/<key>.rgb565 on LittleFS), keyed by the
-    // logo key (operator ICAO or a "_HELI"/"_PRIVATE"/"_CARGO" pseudo-key).
+    // Decoded logo tiles, keyed by the logo key: an operator ICAO (from
+    // /logos/<key>.rgb565 on LittleFS) or a generic pseudo-key such as "_HELI" or
+    // "_CESSNA" (built into the firmware, see core/GenericTiles.h).
     struct LogoTile
     {
         uint16_t w = 0;           // w==0 marks a KNOWN-MISSING tile (negative cache)
@@ -101,7 +105,7 @@ private:
     // pool is also kinder to fragmentation than repeated alloc/free.
     //
     // Capacity MUST cover the working set — the distinct logo keys among the cycled
-    // flights (<= maxFlights, plus the _CARGO/_HELI/_PRIVATE pseudo-keys). Cards
+    // flights (<= maxFlights, plus up to six generic pseudo-keys). Cards
     // cycle round-robin, which is the LRU worst case: with capacity below the
     // working set the cache evicts precisely the tile needed next, so the hit rate
     // is ZERO, not merely reduced, and the pool costs RAM while buying nothing.
@@ -160,8 +164,10 @@ private:
     uint16_t etaColorFor(const FlightInfo &f);
     void drawTrackedChrome(const FlightInfo &f);
     void buildFlightLines(const FlightInfo &f, std::vector<String> &outLines, bool includeAirline);
-    void displayFlightCard(const FlightInfo &f);     // picks a layout by panel shape
-    void displayMiniCard(const FlightInfo &f);       // big panels (128x64): logo + info + metric rows
+    void displayFlightCard(const FlightInfo &f, const std::vector<FlightInfo> &flights); // picks layout
+    void displayMiniCard(const FlightInfo &f, const std::vector<FlightInfo> &flights);
+    void drawMiniRadar(int16_t x, int16_t y, const FlightInfo &current,
+                       const std::vector<FlightInfo> &flights);
     void displaySideBySideCard(const FlightInfo &f); // wide panels: logo left, text right
     void displayStackedCard(const FlightInfo &f);    // square/tall panels: logo top, text below
     void displayTextOnlyCard(const FlightInfo &f);   // very short panels: bordered text
@@ -180,6 +186,7 @@ private:
         enum class Screen
         {
             Dots,
+            Blank,
             Clock,
             Fact
         };

@@ -4,16 +4,21 @@ Purpose: Implementation of the on-device configuration & control web server.
 #include "core/WebConfigServer.h"
 #include "esp_heap_caps.h"
 #include "core/Settings.h"
+#include "include/web_ui_gz.h"
 #include "utils/HtmlEscape.h"
+#include "utils/AirlineNames.h"
 #include "config/HardwareConfiguration.h" // board-guarded pins reported in /api/status
 #include "adapters/GeoLocator.h"
 #include "utils/ServerJson.h" // renderable()
-#include "core/AssetUpdater.h"
 #include "core/FirmwareUpdater.h"
+#include "core/ApiCallStats.h"
+#include "core/GenericTiles.h"
+#include "utils/FlightClassify.h" // logoCandidates(), shared with the LED
 
 #include <LittleFS.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
+#include <Update.h>
 #include <algorithm>
 #include <vector>
 
@@ -83,20 +88,21 @@ void WebConfigServer::registerRoutes()
                { handleGetStatus(); });
     _server.on("/api/flights", HTTP_GET, [this]()
                { handleGetFlights(); });
+    _server.on("/api/radar", HTTP_GET, [this]()
+               { handleGetRadar(); });
+    _server.on("/api/logo", HTTP_GET, [this]()
+               { handleGetLogo(); });
+    _server.on("/api/logos", HTTP_GET, [this]()
+               { handleGetLogos(); });
     _server.on("/api/geolocate", HTTP_GET, [this]()
                { handleGeolocate(); });
     _server.on("/api/wifiscan", HTTP_GET, [this]()
                { handleWifiScan(); });
     _server.on("/api/restart", HTTP_POST, [this]()
                { handleRestart(); });
-    _server.on("/api/updateui", HTTP_POST, [this]()
-               { handleUpdateUi(); });
-    _server.on("/api/updateui", HTTP_DELETE, [this]()
-               { handleClearUi(); });
-    _server.on("/api/firmware", HTTP_GET, [this]()
-               { handleFirmwareCheck(); });
-    _server.on("/api/firmware", HTTP_POST, [this]()
-               { handleFirmwareApply(); });
+    _server.on("/api/ota", HTTP_POST, [this]()
+               { handleOtaPost(); }, [this]()
+               { handleOtaUpload(); });
     _server.on("/setup", HTTP_GET, [this]()
                { handleSetupGet(); });
     _server.on("/setup", HTTP_POST, [this]()
@@ -111,41 +117,14 @@ void WebConfigServer::handleRoot()
     // a normal server: loop() is single-threaded and blocks on the flight fetch, so the
     // page can only stream during the gaps — fewer bytes is directly less time stuck.
     // tools/gzip_web_assets.py regenerates the .gz on every build, so it cannot go
-    // stale; the uncompressed fallback below covers an FS image built without it.
-    // Do NOT sendHeader("Content-Encoding") here. streamFile() -> _streamFileCore()
-    // already adds it when the FILE NAME ends in .gz (WebServer.cpp:525). Setting it
-    // manually as well emits the header twice, which per HTTP means the body was
-    // gzipped TWICE — the browser decodes once, tries again, fails, and renders
-    // nothing. The content type stays text/html: that is what the decoded body is,
-    // and it is also what triggers the automatic header.
-    // The DOWNLOADED page first, the built-in one as the fallback.
-    //
-    // That ordering is the whole feature: a UI change ships by fetching a file
-    // rather than by reflashing a 10MB filesystem image and wiping settings.
-    // The built-in copy is never overwritten, so a device that has never
-    // reached the server, or whose download failed its hash check, still
-    // serves a working page -- which matters because this page is how someone
-    // fixes a misbehaving device.
-    File f = LittleFS.open(AssetUpdater::kUiCachePath, "r");
-    if (!f)
-        f = LittleFS.open("/index.html.gz", "r");
-    if (f)
-    {
-        _server.streamFile(f, "text/html");
-        f.close();
-        return;
-    }
-
-    f = LittleFS.open("/index.html", "r");
-    if (!f)
-    {
-        _server.send(200, "text/html",
-                     "<h1>FlightWall</h1><p>UI asset missing. Upload the LittleFS "
-                     "filesystem image (index.html) and reboot.</p>");
-        return;
-    }
-    _server.streamFile(f, "text/html");
-    f.close();
+    // stale.
+    // The Content-Encoding header is set by hand only for the embedded copy below;
+    // streamFile() already adds it for a *.gz file, and setting it there as well
+    // would send it twice (browser decodes once, fails the second time).
+    // The page compiled into this firmware is the only one served: it always matches
+    // the running code, and nothing can replace it at runtime.
+    _server.sendHeader("Content-Encoding", "gzip");
+    _server.send_P(200, "text/html", (PGM_P)kWebUiGz, kWebUiGzLen);
 }
 
 void WebConfigServer::handleGetSettings()
@@ -172,86 +151,6 @@ void WebConfigServer::handlePostSettings()
     _settingsChanged = true;
     String resp = String("{\"ok\":") + (saved ? "true" : "false") + "}";
     _server.send(saved ? 200 : 500, "application/json", resp);
-}
-
-void WebConfigServer::handleUpdateUi()
-{
-    // Synchronous, inside the request that asked for it. The page is ~12KB and
-    // this device serves one request per loop() anyway, so the browser waiting
-    // a second is both honest and simpler than a job queue -- and the caller
-    // gets the actual outcome rather than "started".
-    const AssetUpdater::FetchResult r = AssetUpdater::updateUi(g_settings.serverUrl);
-    JsonDocument doc;
-    doc["ok"] = r.ok;
-    doc["changed"] = r.changed;
-    if (!r.ok)
-        doc["error"] = r.error;
-    doc["sha"] = AssetUpdater::cachedUiSha();
-    String out;
-    serializeJson(doc, out);
-    _server.send(r.ok ? 200 : 502, "application/json", out);
-}
-
-void WebConfigServer::handleClearUi()
-{
-    // The escape hatch for a download that passed its hash and is still bad:
-    // drop the cache and the built-in page is served again on the next load.
-    const bool had = AssetUpdater::servingCachedUi();
-    AssetUpdater::clearCachedUi();
-    String out = String("{\"ok\":true,\"cleared\":") + (had ? "true" : "false") + "}";
-    _server.send(200, "application/json", out);
-}
-
-void WebConfigServer::handleFirmwareCheck()
-{
-    const FirmwareUpdater::Available a = FirmwareUpdater::check(g_settings.serverUrl);
-    JsonDocument doc;
-    doc["ok"] = a.ok;
-    doc["running"] = FirmwareUpdater::runningVersion();
-    if (a.ok)
-    {
-        doc["available"] = a.version;
-        doc["size"] = a.size;
-        // The device decides by comparing strings, not by ordering them: these
-        // are git revisions, which have no order. "different" is the only
-        // question that can honestly be asked, and downgrading is a legitimate
-        // answer to a bad release.
-        doc["differs"] = (a.version != FirmwareUpdater::runningVersion());
-    }
-    else
-    {
-        doc["error"] = a.error;
-    }
-    String out;
-    serializeJson(doc, out);
-    _server.send(a.ok ? 200 : 502, "application/json", out);
-}
-
-void WebConfigServer::handleFirmwareApply()
-{
-    const FirmwareUpdater::Available a = FirmwareUpdater::check(g_settings.serverUrl);
-    if (!a.ok)
-    {
-        _server.send(502, "application/json",
-                     String("{\"ok\":false,\"error\":\"") + a.error + "\"}");
-        return;
-    }
-
-    // Answer BEFORE downloading. A successful apply ends in ESP.restart(), so
-    // the browser would otherwise be waiting on a connection the device is
-    // about to drop -- and would show a network error for the one outcome that
-    // actually worked.
-    _server.send(200, "application/json",
-                 String("{\"ok\":true,\"staging\":\"") + a.version +
-                     "\",\"note\":\"downloading and verifying; the device reboots if it passes\"}");
-    _server.client().flush();
-    delay(50);
-
-    const FirmwareUpdater::ApplyResult r = FirmwareUpdater::apply(g_settings.serverUrl, a);
-    // Only reached on FAILURE -- success rebooted. Nothing to reply to now, so
-    // the serial log is the record.
-    Serial.printf("[ota] update failed: %s\n", r.error.c_str());
-    setLastNote(String("update failed: ") + r.error);
 }
 
 void WebConfigServer::handleGetStatus()
@@ -310,11 +209,23 @@ void WebConfigServer::handleGetStatus()
     // answerable without guessing. builtin = the copy flashed with the
     // firmware; server = one downloaded from the FlightWall server.
     doc["fwVersion"] = FirmwareUpdater::runningVersion();
+    doc["fwInstalledAt"] = FirmwareUpdater::installedAt();
+    doc["buildTarget"] = FirmwareUpdater::buildTarget();
+    const ApiCallStats::Snapshot calls = ApiCallStats::snapshot();
+    doc["fr24Calls"] = calls.fr24;
+    doc["adsbdbCalls"] = calls.adsbdb;
+    doc["hexdbCalls"] = calls.hexdb;
+    doc["aeroApiCalls"] = calls.aeroApi;
+    doc["apiCallWindowSeconds"] = calls.windowSeconds;
+    doc["apiCallWindowFull"] = calls.fullDay;
+    doc["fr24WatchCountsValid"] = g_settings.positionSource == PositionSource::FlightRadar24 &&
+                                  g_settings.mode == TrackingMode::Area && _fr24WatchCountsValid;
+    doc["fr24WatchInnerCount"] = _fr24WatchInnerCount;
+    doc["fr24WatchMiddleCount"] = _fr24WatchMiddleCount;
+    doc["fr24WatchOuterCount"] = _fr24WatchOuterCount;
     // True only in the window between an OTA reboot and the device proving it
     // works. Visible so a rollback is explicable rather than mysterious.
     doc["fwPendingVerify"] = FirmwareUpdater::awaitingValidation();
-    doc["uiSource"] = AssetUpdater::servingCachedUi() ? "server" : "builtin";
-    doc["uiSha"] = AssetUpdater::cachedUiSha();
     doc["panelBrightness"] = _panelBrightness;
     doc["panelOff"] = _panelOff;
     doc["manualBrightness"] = _manualBrightness;
@@ -334,6 +245,125 @@ void WebConfigServer::handleGetStatus()
     String out;
     serializeJson(doc, out);
     _server.send(200, "application/json", out);
+}
+
+void WebConfigServer::handleOtaUpload()
+{
+    HTTPUpload &upload = _server.upload();
+    if (upload.status == UPLOAD_FILE_START)
+    {
+        if (upload.name == "signature")
+        {
+            _otaSignatureSize = 0;
+            _otaTargetSize = 0;
+            _otaFirmwareBytes = 0;
+            _otaTarget[0] = '\0';
+            _otaUploadError = "";
+            _otaFirmwareStarted = false;
+        }
+        else if (upload.name == "target")
+        {
+            _otaTargetSize = 0;
+            _otaTarget[0] = '\0';
+        }
+        else if (upload.name == "firmware")
+        {
+            String error;
+            if (_otaUploadError.length() == 0 && _otaSignatureSize > 0 && _otaTargetSize > 0 &&
+                FirmwareUpdater::beginLocalUpload(_otaSignature, _otaSignatureSize,
+                                                   String(_otaTarget), 0, error))
+                _otaFirmwareStarted = true;
+            else if (_otaUploadError.length() == 0)
+                _otaUploadError = error.length() ? error : "upload signature and target before firmware";
+        }
+        else
+        {
+            _otaUploadError = "unexpected upload field";
+        }
+    }
+    else if (upload.status == UPLOAD_FILE_WRITE)
+    {
+        if (upload.name == "signature" && _otaUploadError.length() == 0)
+        {
+            if (_otaSignatureSize + upload.currentSize > sizeof(_otaSignature))
+                _otaUploadError = "signature file is too large";
+            else
+            {
+                memcpy(_otaSignature + _otaSignatureSize, upload.buf, upload.currentSize);
+                _otaSignatureSize += upload.currentSize;
+            }
+        }
+        else if (upload.name == "target" && _otaUploadError.length() == 0)
+        {
+            if (_otaTargetSize + upload.currentSize >= sizeof(_otaTarget))
+                _otaUploadError = "target file is too large";
+            else
+            {
+                memcpy(_otaTarget + _otaTargetSize, upload.buf, upload.currentSize);
+                _otaTargetSize += upload.currentSize;
+                _otaTarget[_otaTargetSize] = '\0';
+            }
+        }
+        else if (upload.name == "firmware" && _otaFirmwareStarted &&
+                 FirmwareUpdater::writeLocalUpload(upload.buf, upload.currentSize) != upload.currentSize)
+        {
+            FirmwareUpdater::abortLocalUpload();
+            _otaFirmwareStarted = false;
+            _otaUploadError = String("flash write failed: ") + Update.errorString();
+        }
+        else if (upload.name == "firmware" && _otaFirmwareStarted)
+        {
+            _otaFirmwareBytes += upload.currentSize;
+        }
+    }
+    else if (upload.status == UPLOAD_FILE_END && upload.name == "firmware" &&
+             _otaFirmwareStarted && _otaFirmwareBytes == 0)
+    {
+        _otaUploadError = "firmware file is empty";
+    }
+    else if (upload.status == UPLOAD_FILE_ABORTED)
+    {
+        FirmwareUpdater::abortLocalUpload();
+        _otaFirmwareStarted = false;
+        _otaUploadError = "upload was interrupted";
+    }
+}
+
+void WebConfigServer::handleOtaPost()
+{
+    auto sendError = [this](int status, const String &error)
+    {
+        JsonDocument doc;
+        doc["ok"] = false;
+        doc["error"] = error;
+        String body;
+        serializeJson(doc, body);
+        _server.send(status, "application/json", body);
+    };
+
+    if (_otaUploadError.length())
+    {
+        FirmwareUpdater::abortLocalUpload();
+        sendError(400, _otaUploadError);
+        return;
+    }
+    if (!_otaFirmwareStarted || _otaFirmwareBytes == 0)
+    {
+        sendError(400, "firmware and signature files are required");
+        return;
+    }
+
+    FirmwareUpdater::ApplyResult result = FirmwareUpdater::finishLocalUpload();
+    _otaFirmwareStarted = false;
+    if (!result.ok)
+    {
+        sendError(400, result.error);
+        return;
+    }
+
+    _server.send(200, "application/json", "{\"ok\":true,\"restarting\":true}");
+    delay(300);
+    ESP.restart();
 }
 
 String WebConfigServer::buildFlightsJson() const
@@ -356,12 +386,24 @@ String WebConfigServer::buildFlightsJson() const
                            : (f.operator_iata.length() ? f.operator_iata
                               : (f.operator_icao.length() ? f.operator_icao : f.operator_code));
             o["aircraft"] = f.aircraft_code;
+            o["aircraftManufacturer"] = f.aircraft_manufacturer;
+            o["aircraftModel"] = f.aircraft_model;
+            o["aircraftClass"] = f.aircraft_icon_class;
+            if (renderable(f.lat))
+                o["lat"] = f.lat;
+            if (renderable(f.lon))
+                o["lon"] = f.lon;
+            o["pinned"] = f.pinned;
             // The code the ignore list wants, separately from the display
             // name above, so the page can offer "ignore EJA" beside a flight
             // that is on the wall right now rather than asking the person to
             // work the code out from the name.
             if (f.operator_icao.length())
                 o["operatorIcao"] = f.operator_icao;
+            if (f.operator_iata.length())
+                o["operatorIata"] = f.operator_iata;
+            if (f.operator_code.length())
+                o["operatorCode"] = f.operator_code;
             // Reading code_icao alone blanked this list for any source that supplies only
             // IATA — which is every flight under Flightradar24, whose feed carries IATA
             // origin/destination inline and no ICAO at all. The UI renders these as
@@ -420,6 +462,228 @@ String WebConfigServer::buildFlightsJson() const
 void WebConfigServer::handleGetFlights()
 {
     _server.send(200, "application/json", buildFlightsJson());
+}
+
+void WebConfigServer::handleGetRadar()
+{
+    JsonDocument doc;
+    const bool areaMode = g_settings.mode == TrackingMode::Area;
+    const bool useRadarStates = areaMode &&
+                                g_settings.positionSource != PositionSource::FlightWallServer &&
+                                _radarStates;
+    const bool usesWatchRing = useRadarStates &&
+                               g_settings.positionSource == PositionSource::FlightRadar24;
+    const double displayRadiusKm = g_settings.radiusKm;
+    const double watchRadiusKm = areaMode &&
+                                         g_settings.positionSource == PositionSource::FlightRadar24
+                                     ? max(displayRadiusKm, g_settings.fr24WatchRadiusKm)
+                                     : displayRadiusKm;
+    doc["mode"] = areaMode ? "area" : "flights";
+    doc["source"] = _activeSource;
+    doc["centerLat"] = g_settings.centerLat;
+    doc["centerLon"] = g_settings.centerLon;
+    doc["displayRadiusKm"] = displayRadiusKm;
+    doc["watchRadiusKm"] = watchRadiusKm;
+    doc["outerBandKm"] = g_settings.fr24OuterBandKm;
+    doc["innerBandKm"] = g_settings.fr24InnerBandKm;
+    doc["distanceUnit"] = g_settings.distanceUnit;
+    doc["usesWatchRing"] = usesWatchRing;
+    JsonArray aircraft = doc["aircraft"].to<JsonArray>();
+
+    if (useRadarStates)
+    {
+        for (const StateVector &flight : *_radarStates)
+        {
+            if (!renderable(flight.lat) || !renderable(flight.lon))
+                continue;
+            JsonObject item = aircraft.add<JsonObject>();
+            item["ident"] = flight.callsign;
+            item["lat"] = flight.lat;
+            item["lon"] = flight.lon;
+            item["distanceKm"] = flight.distance_km;
+            if (renderable(flight.heading))
+                item["headingDeg"] = flight.heading;
+        }
+    }
+    else if (_flights)
+    {
+        for (const FlightInfo &flight : *_flights)
+        {
+            if (!renderable(flight.lat) || !renderable(flight.lon))
+                continue;
+            JsonObject item = aircraft.add<JsonObject>();
+            item["ident"] = flight.ident.length() ? flight.ident : flight.ident_icao;
+            item["lat"] = flight.lat;
+            item["lon"] = flight.lon;
+            item["distanceKm"] = flight.distance_km;
+            item["estimated"] = flight.position_estimated;
+            if (renderable(flight.heading_deg))
+                item["headingDeg"] = flight.heading_deg;
+        }
+    }
+
+    String out;
+    serializeJson(doc, out);
+    _server.sendHeader("Cache-Control", "no-store");
+    _server.send(200, "application/json", out);
+}
+
+void WebConfigServer::handleGetLogo()
+{
+    String operatorCode = _server.arg("operator");
+    operatorCode.toUpperCase();
+    bool validOperator = operatorCode.length() > 0 && operatorCode.length() <= 3;
+    for (size_t i = 0; validOperator && i < operatorCode.length(); ++i)
+    {
+        const char c = operatorCode[i];
+        validOperator = (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    }
+
+    // kind: "heli" / "private" for a flight; or an aircraft class name
+    // ("cessna"/"light"/"business") when the logo list asks for that tile.
+    // cls: the flight's aircraft class (FlightInfo::aircraft_icon_class).
+    const String kind = _server.arg("kind");
+    const bool cargo = _server.arg("cargo") == "1";
+    String cls = _server.arg("cls");
+    if (!cls.length() && aircraftClassTileKey(kind.c_str()))
+        cls = kind;
+    const char *candidates[kMaxLogoCandidates];
+    const size_t candidateCount = logoCandidates(kind == "heli", kind == "private",
+                                                 validOperator ? operatorCode.c_str() : "",
+                                                 cargo, cls.c_str(), candidates);
+
+    for (size_t i = 0; i < candidateCount; ++i)
+    {
+        size_t builtinLen = 0;
+        const uint8_t *builtin = builtinTile(candidates[i], builtinLen);
+        if (builtin)
+        {
+            _server.sendHeader("Cache-Control", "public, max-age=86400");
+            _server.send_P(200, "application/octet-stream", (PGM_P)builtin, builtinLen);
+            return;
+        }
+        File logo = LittleFS.open(String("/logos/") + candidates[i] + ".rgb565", "r");
+        if (!logo)
+            continue;
+
+        const size_t fileSize = logo.size();
+        uint8_t header[4];
+        if (fileSize < sizeof(header) || logo.read(header, sizeof(header)) != sizeof(header))
+        {
+            logo.close();
+            continue;
+        }
+
+        const uint16_t width = header[0] | (header[1] << 8);
+        const uint16_t height = header[2] | (header[3] << 8);
+        const size_t expectedSize = sizeof(header) + static_cast<size_t>(width) * height * 2;
+        if (width == 0 || height == 0 || width > 64 || height > 64 || fileSize != expectedSize)
+        {
+            logo.close();
+            continue;
+        }
+
+        logo.seek(0);
+        _server.sendHeader("Cache-Control", "public, max-age=86400");
+        _server.streamFile(logo, "application/octet-stream");
+        logo.close();
+        return;
+    }
+
+    _server.send(404, "text/plain", "logo not found");
+}
+
+void WebConfigServer::handleGetLogos()
+{
+    File directory = LittleFS.open("/logos");
+    if (!directory || !directory.isDirectory())
+    {
+        _server.send(500, "application/json", "[]");
+        return;
+    }
+
+    JsonDocument doc;
+    JsonArray logos = doc.to<JsonArray>();
+
+    // Built-in generic tiles first. `kind` is what /api/logo needs to find
+    // each one again.
+    for (size_t i = 0; i < builtinTileCount(); ++i)
+    {
+        const String code = builtinTileKey(i);
+        JsonObject logo = logos.add<JsonObject>();
+        logo["code"] = code;
+        if (code == "_HELI")         { logo["name"] = "Helicopter";        logo["kind"] = "heli"; }
+        else if (code == "_PRIVATE") { logo["name"] = "Unknown aircraft";  logo["kind"] = "private"; }
+        else if (code == "_CARGO")   { logo["name"] = "Cargo aircraft";    logo["kind"] = "cargo"; }
+        else if (code == "_CESSNA")  { logo["name"] = "Cessna";            logo["kind"] = "cessna"; }
+        else if (code == "_LIGHT")   { logo["name"] = "Light aircraft";    logo["kind"] = "light"; }
+        else if (code == "_BIZJET")  { logo["name"] = "Business jet";      logo["kind"] = "business"; }
+        else                           logo["name"] = code;
+    }
+
+    File entry = directory.openNextFile();
+    while (entry)
+    {
+        String filename = entry.name();
+        const int slash = filename.lastIndexOf('/');
+        if (slash >= 0)
+            filename = filename.substring(slash + 1);
+
+        if (filename.endsWith(".rgb565") && filename.length() > 7)
+        {
+            const String code = filename.substring(0, filename.length() - 7);
+            bool validCode = code.length() <= 16;
+            for (size_t i = 0; validCode && i < code.length(); ++i)
+            {
+                const char c = code[i];
+                validCode = (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+            }
+
+            // Listed above already; a filesystem copy is never the one shown.
+            size_t builtinLen = 0;
+            if (builtinTile(code.c_str(), builtinLen))
+                validCode = false;
+
+            uint8_t header[4];
+            const size_t fileSize = entry.size();
+            if (validCode && fileSize >= sizeof(header) &&
+                entry.read(header, sizeof(header)) == sizeof(header))
+            {
+                const uint16_t width = header[0] | (header[1] << 8);
+                const uint16_t height = header[2] | (header[3] << 8);
+                const size_t expectedSize = sizeof(header) + static_cast<size_t>(width) * height * 2;
+                if (width > 0 && height > 0 && width <= 64 && height <= 64 && fileSize == expectedSize)
+                {
+                    const char *knownName = airlineNameForIcao(code.c_str());
+                    JsonObject logo = logos.add<JsonObject>();
+                    logo["code"] = code;
+                    logo["name"] = knownName ? knownName : code;
+                    if (code == "_HELI")
+                    {
+                        logo["name"] = "Helicopter";
+                        logo["kind"] = "heli";
+                    }
+                    else if (code == "_PRIVATE")
+                    {
+                        logo["name"] = "Private aircraft";
+                        logo["kind"] = "private";
+                    }
+                    else if (code == "_CARGO")
+                    {
+                        logo["name"] = "Cargo aircraft";
+                        logo["kind"] = "cargo";
+                    }
+                }
+            }
+        }
+        entry.close();
+        entry = directory.openNextFile();
+    }
+    directory.close();
+
+    String out;
+    serializeJson(doc, out);
+    _server.send(200, "application/json", out);
 }
 
 void WebConfigServer::handleGeolocate()

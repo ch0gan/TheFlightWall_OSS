@@ -114,12 +114,14 @@ bool AdsbdbFetcher::fetchAircraft(const String &icao24, FlightInfo &out)
         return false;
 
     String type = jstr(ac, "icao_type");
+    out.aircraft_manufacturer = jstr(ac, "manufacturer");
+    out.aircraft_model = jstr(ac, "type");
     if (type.length())
     {
         out.aircraft_code = type;
         return true;
     }
-    return false;
+    return out.aircraft_manufacturer.length() || out.aircraft_model.length();
 }
 
 bool AdsbdbFetcher::fetchRouteHexdb(const String &callsign, FlightInfo &out)

@@ -11,6 +11,8 @@ REST API:
   POST /api/settings   -> apply + persist settings JSON (body)
   GET  /api/status     -> connection + device status JSON
   GET  /api/flights    -> currently displayed flights JSON (set by main loop)
+  GET  /api/logo       -> RGB565 airline/generic logo tile for the web preview
+  GET  /api/logos      -> saved logo inventory with display names
   GET  /api/wifiscan   -> nearby WiFi networks JSON
   POST /api/restart    -> reboot the device
 
@@ -33,6 +35,7 @@ mode the captive-portal redirect therefore points at /setup, not /.
 #include <WebServer.h>
 #include <DNSServer.h>
 #include "models/FlightInfo.h"
+#include "models/StateVector.h"
 
 class WebConfigServer
 {
@@ -46,6 +49,7 @@ public:
     // We store a pointer to the long-lived global flights vector and serialize
     // it on demand in handleGetFlights(), rather than re-serializing every fetch.
     void setFlights(const std::vector<FlightInfo> *flights) { _flights = flights; }
+    void setRadarStates(const std::vector<StateVector> *states) { _radarStates = states; }
     // Note only. The flight COUNT is no longer pushed: it is derived from the
     // same vector /api/flights serialises, so the two cannot disagree.
     void setLastNote(const String &note);
@@ -61,6 +65,13 @@ public:
      *  FlightDataFetcher::lastActiveSource() for why it is not `positionSource`. */
     void setActiveSource(const String &src) { _activeSource = src; }
     void setSourceFallback(bool f) { _sourceFallback = f; }
+    void setFr24WatchCounts(bool valid, uint32_t inner, uint32_t middle, uint32_t outer)
+    {
+      _fr24WatchCountsValid = valid;
+      _fr24WatchInnerCount = inner;
+      _fr24WatchMiddleCount = middle;
+      _fr24WatchOuterCount = outer;
+    }
 
     // Latest ambient light reading, surfaced in /api/status for calibration.
     // The RESOLVED panel state, after every override has been folded in.
@@ -122,10 +133,15 @@ private:
     bool _apMode = false;
     String _ip;
     const std::vector<FlightInfo> *_flights = nullptr;
+    const std::vector<StateVector> *_radarStates = nullptr;
     String _lastNote;
     bool _serverStale = false;
     String _activeSource;
     bool _sourceFallback = false;
+    bool _fr24WatchCountsValid = false;
+    uint32_t _fr24WatchInnerCount = 0;
+    uint32_t _fr24WatchMiddleCount = 0;
+    uint32_t _fr24WatchOuterCount = 0;
     int _lightLevel = -1;
     bool _lightDark = false;
     String _lastOtaError;
@@ -136,23 +152,31 @@ private:
 
     volatile bool _settingsChanged = false;
     volatile bool _restartRequested = false;
+    uint8_t _otaSignature[128] = {};
+    size_t _otaSignatureSize = 0;
+    char _otaTarget[32] = {};
+    size_t _otaTargetSize = 0;
+    size_t _otaFirmwareBytes = 0;
+    String _otaUploadError;
+    bool _otaFirmwareStarted = false;
 
     void registerRoutes();
     void handleGetSettings();
     void handlePostSettings();
     void handleGetStatus();
     void handleGetFlights();
+    void handleGetRadar();
+    void handleGetLogo();
+    void handleGetLogos();
     String buildFlightsJson() const;
     void handleGeolocate();
     void handleWifiScan();
     void handleRestart();
+      void handleOtaPost();
+      void handleOtaUpload();
     void handleRoot();
     void handleSetupPage(const char *banner);
     void appendScanList(String &html);
-    void handleUpdateUi();
-    void handleClearUi();
-    void handleFirmwareCheck();
-    void handleFirmwareApply();
     void handleSetupGet();
     void handleSetupPost();
     void handleNotFound();

@@ -36,7 +36,14 @@ public:
                            double radiusKm,
                            std::vector<StateVector> &outStateVectors) override;
 
+    bool fetchByIdent(const String &ident,
+                      double fromLat,
+                      double fromLon,
+                      std::vector<StateVector> &outStateVectors) override;
+
 private:
+    bool fetchUrl(const String &url, double centerLat, double centerLon,
+                  std::vector<StateVector> &outStateVectors);
     WiFiClientSecure m_secure;
     bool m_secureInit = false;
     WiFiClientSecure &secureClient();

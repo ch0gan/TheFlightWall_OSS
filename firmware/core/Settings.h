@@ -40,6 +40,18 @@ enum class TrackingMode : uint8_t
     Flights = 1 // Track a specific list of flights by ident / callsign / tail
 };
 
+// How aircraft are drawn on the radar (LED mini radar and the web UI radars).
+// Stored as its number; anything out of range loads as DotTrail.
+enum class RadarAircraftShape : uint8_t
+{
+    DotTrail = 0, // dot with a line trailing behind (original look)
+    Chevron = 1,  // arrowhead pointing along the heading
+    Plane = 2,    // small top-view plane silhouette
+    Comet = 3,    // dot with a trail that fades out behind it
+    NoseTick = 4  // dot with a short tick pointing forward
+};
+constexpr uint8_t RADAR_AIRCRAFT_SHAPE_COUNT = 5;
+
 enum class EnrichmentSource : uint8_t
 {
     Adsbdb = 0, // free, no key (adsbdb.com)
@@ -82,6 +94,7 @@ enum class LightSensorType : uint8_t
 struct DisplayLayout
 {
     bool showAirlineFlight = true; // "United UA123"
+    bool showLogo = true;          // airline logo tile (large cards)
     bool showRoute = true;         // "KSFO>KJFK"
     bool showAircraft = true;      // "B739"
     bool showAltitude = true;      // "FL350" / "12,500ft"
@@ -89,6 +102,9 @@ struct DisplayLayout
     bool showHeading = true;       // "HDG 094"
     bool showVerticalRate = true;  // "+1200fpm"
     bool showEta = true;           // "~1h05" / "LANDING"
+    bool showDistance = true;      // "Dst" + distance from the configured center
+    bool showRadar = false;        // 32x32 radar in the Mini card's Dst slot
+    bool showProgressBar = true;   // route/trip progress bar along the bottom
     bool flightNumberOverVr = true;  // show the flight number in the vertical-rate slot
     // What to show when there are zero flights:
     //   "dots", "clock", "funfact", "clockfact" (default — alternates the two)
@@ -171,7 +187,15 @@ struct Settings
     TrackingMode mode = TrackingMode::Area;
     double centerLat = UserConfiguration::CENTER_LAT;
     double centerLon = UserConfiguration::CENTER_LON;
+    String distanceUnit = "km";
     double radiusKm = UserConfiguration::RADIUS_KM;
+    double fr24WatchRadiusKm = 20.0;
+    double fr24OuterBandKm = 10.0;
+    double fr24InnerBandKm = 5.0;
+    uint32_t fr24NoAircraftIntervalSeconds = 120;
+    uint32_t fr24OuterBandIntervalSeconds = 30;
+    uint32_t fr24MiddleBandIntervalSeconds = 15;
+    uint32_t fr24InnerBandIntervalSeconds = 10;
     bool autoLocateOnBoot = false; // set center from IP geolocation each boot
     std::vector<String> trackedFlights; // idents / callsigns / tails for Flights mode
 
@@ -180,6 +204,29 @@ struct Settings
     uint8_t textColorR = UserConfiguration::TEXT_COLOR_R;
     uint8_t textColorG = UserConfiguration::TEXT_COLOR_G;
     uint8_t textColorB = UserConfiguration::TEXT_COLOR_B;
+    uint8_t radarColorR = 200;
+    uint8_t radarColorG = 200;
+    uint8_t radarColorB = 200;
+    uint8_t radarActiveColorR = 255;
+    uint8_t radarActiveColorG = 210;
+    uint8_t radarActiveColorB = 70;
+    uint8_t radarAircraftColorR = 0;
+    uint8_t radarAircraftColorG = 210;
+    uint8_t radarAircraftColorB = 90;
+    uint8_t radarCenterColorR = 200;
+    uint8_t radarCenterColorG = 200;
+    uint8_t radarCenterColorB = 200;
+    uint8_t radarInnerColorR = 0;
+    uint8_t radarInnerColorG = 0;
+    uint8_t radarInnerColorB = 0;
+    uint8_t radarBandColorR = 0;
+    uint8_t radarBandColorG = 0;
+    uint8_t radarBandColorB = 0;
+    uint8_t radarAircraftShape = (uint8_t)RadarAircraftShape::DotTrail;
+    // Filled part of the progress bar (and the ETA text over it).
+    uint8_t progressColorR = 0;
+    uint8_t progressColorG = 210;
+    uint8_t progressColorB = 90;
     uint8_t maxFlights = UserConfiguration::MAX_FLIGHTS; // length of the carousel, not what is on screen
     uint32_t cycleSeconds = TimingConfiguration::DISPLAY_CYCLE_SECONDS;
     uint32_t fetchIntervalSeconds = TimingConfiguration::FETCH_INTERVAL_SECONDS;
