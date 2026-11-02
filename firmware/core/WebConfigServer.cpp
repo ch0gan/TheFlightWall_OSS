@@ -12,6 +12,8 @@ Purpose: Implementation of the on-device configuration & control web server.
 #include "utils/ServerJson.h" // renderable()
 #include "core/FirmwareUpdater.h"
 #include "core/ApiCallStats.h"
+#include "core/GenericTiles.h"
+#include "utils/FlightClassify.h" // logoCandidates(), shared with the LED
 
 #include <LittleFS.h>
 #include <WiFi.h>
@@ -537,23 +539,29 @@ void WebConfigServer::handleGetLogo()
         validOperator = (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
     }
 
+    // kind: "heli" / "private" for a flight; or an aircraft class name
+    // ("cessna"/"light"/"business") when the logo list asks for that tile.
+    // cls: the flight's aircraft class (FlightInfo::aircraft_icon_class).
     const String kind = _server.arg("kind");
     const bool cargo = _server.arg("cargo") == "1";
-    String candidates[4];
-    size_t candidateCount = 0;
-    if (kind == "heli")
-        candidates[candidateCount++] = "_HELI";
-    else if (kind == "private")
-        candidates[candidateCount++] = "_PRIVATE";
-    if (validOperator)
-        candidates[candidateCount++] = operatorCode;
-    if (cargo)
-        candidates[candidateCount++] = "_CARGO";
-    if (kind == "business" || kind == "light")
-        candidates[candidateCount++] = "_PRIVATE";
+    String cls = _server.arg("cls");
+    if (!cls.length() && aircraftClassTileKey(kind.c_str()))
+        cls = kind;
+    const char *candidates[kMaxLogoCandidates];
+    const size_t candidateCount = logoCandidates(kind == "heli", kind == "private",
+                                                 validOperator ? operatorCode.c_str() : "",
+                                                 cargo, cls.c_str(), candidates);
 
     for (size_t i = 0; i < candidateCount; ++i)
     {
+        size_t builtinLen = 0;
+        const uint8_t *builtin = builtinTile(candidates[i], builtinLen);
+        if (builtin)
+        {
+            _server.sendHeader("Cache-Control", "public, max-age=86400");
+            _server.send_P(200, "application/octet-stream", (PGM_P)builtin, builtinLen);
+            return;
+        }
         File logo = LittleFS.open(String("/logos/") + candidates[i] + ".rgb565", "r");
         if (!logo)
             continue;
@@ -596,6 +604,23 @@ void WebConfigServer::handleGetLogos()
 
     JsonDocument doc;
     JsonArray logos = doc.to<JsonArray>();
+
+    // Built-in generic tiles first. `kind` is what /api/logo needs to find
+    // each one again.
+    for (size_t i = 0; i < builtinTileCount(); ++i)
+    {
+        const String code = builtinTileKey(i);
+        JsonObject logo = logos.add<JsonObject>();
+        logo["code"] = code;
+        if (code == "_HELI")         { logo["name"] = "Helicopter";        logo["kind"] = "heli"; }
+        else if (code == "_PRIVATE") { logo["name"] = "Unknown aircraft";  logo["kind"] = "private"; }
+        else if (code == "_CARGO")   { logo["name"] = "Cargo aircraft";    logo["kind"] = "cargo"; }
+        else if (code == "_CESSNA")  { logo["name"] = "Cessna";            logo["kind"] = "cessna"; }
+        else if (code == "_LIGHT")   { logo["name"] = "Light aircraft";    logo["kind"] = "light"; }
+        else if (code == "_BIZJET")  { logo["name"] = "Business jet";      logo["kind"] = "business"; }
+        else                           logo["name"] = code;
+    }
+
     File entry = directory.openNextFile();
     while (entry)
     {
@@ -613,6 +638,11 @@ void WebConfigServer::handleGetLogos()
                 const char c = code[i];
                 validCode = (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
             }
+
+            // Listed above already; a filesystem copy is never the one shown.
+            size_t builtinLen = 0;
+            if (builtinTile(code.c_str(), builtinLen))
+                validCode = false;
 
             uint8_t header[4];
             const size_t fileSize = entry.size();

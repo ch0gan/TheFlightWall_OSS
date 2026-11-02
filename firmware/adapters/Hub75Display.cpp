@@ -25,6 +25,8 @@ Inputs: FlightInfo list; g_settings (colors/brightness/layout/cycle/geometry).
 #include "utils/GeoUtils.h"
 #include "core/Settings.h"
 #include "utils/ClockFormat.h"
+#include "utils/FlightClassify.h" // logoCandidates()
+#include "core/GenericTiles.h"
 
 // How long each fun fact stays up / how long the clock<->fact alternation holds,
 // in milliseconds. Reused as the clock recompose granularity is per-minute.
@@ -148,10 +150,10 @@ bool Hub75Display::initialize()
 void Hub75Display::applySettings()
 {
     // Working set = distinct logo keys among the cycled cards: at most maxFlights
-    // operator tiles, plus the three pseudo-keys (_CARGO/_HELI/_PRIVATE) that can
-    // coexist with them when an operator tile is missing. Undersizing this is not a
+    // operator tiles, plus the six generic pseudo-keys (_CARGO/_HELI/_PRIVATE/
+    // _CESSNA/_LIGHT/_BIZJET) that can coexist with them. Undersizing this is not a
     // partial win — round-robin cycling makes an undersized LRU miss every time.
-    size_t want = (size_t)g_settings.maxFlights + 3;
+    size_t want = (size_t)g_settings.maxFlights + 6;
     if (want < 4)
         want = 4; // keep the old floor for tiny maxFlights
     if (want > kMaxLogoTiles)
@@ -383,6 +385,26 @@ const Hub75Display::LogoTile *Hub75Display::loadTile(const String &key)
 {
     LogoTile tile; // stays w==0 on any failure below -> negative cache entry
 
+    // Built-in generic tiles (_CESSNA, _PRIVATE, ...) win over LittleFS, so an
+    // older copy left on the filesystem can never shadow the firmware's.
+    size_t builtinLen = 0;
+    const uint8_t *builtin = builtinTile(key.c_str(), builtinLen);
+    if (builtin && builtinLen >= 4)
+    {
+        const int w = builtin[0] | (builtin[1] << 8);
+        const int h = builtin[2] | (builtin[3] << 8);
+        const size_t count = (size_t)w * (size_t)h;
+        if (w > 0 && h > 0 && w <= 64 && h <= 64 && builtinLen == 4 + count * 2)
+        {
+            std::vector<uint16_t> px(count);
+            memcpy(px.data(), builtin + 4, count * 2); // little-endian == ESP32 native
+            tile.w = (uint16_t)w;
+            tile.h = (uint16_t)h;
+            tile.px = std::move(px);
+        }
+        return _logoCache.put(key, std::move(tile));
+    }
+
     String path = String("/logos/") + key + ".rgb565";
     File f = LittleFS.open(path, "r");
     if (f)
@@ -456,24 +478,15 @@ uint16_t Hub75Display::accentColorFor(const String &code)
 
 void Hub75Display::drawLogoOrBadge(const FlightInfo &f, int16_t x, int16_t y, int16_t w, int16_t h)
 {
-    // Logo selection priority (first that loads wins):
-    //   1. helicopter -> generic rotorcraft icon (must NOT fall to _PRIVATE)
-    //   2. private     -> generic private-jet icon
-    //   3. operator's real/badge tile (if it has one)
-    //   4. cargo       -> generic cargo icon (only when no specific operator tile)
-    //   5. text/accent fallback (below)
+    // First tile that loads wins; the order is logoCandidates() (FlightClassify.h),
+    // the same list /api/logo uses for the web preview. Text/accent badge below
+    // when none loads.
     const LogoTile *tile = nullptr;
-    if (f.is_helicopter)
-        tile = tileFor("_HELI");
-    else if (f.is_private)
-        tile = tileFor("_PRIVATE");
-    if ((!tile || tile->w == 0) && f.operator_icao.length())
-        tile = tileFor(f.operator_icao);
-    if ((!tile || tile->w == 0) && f.is_cargo)
-        tile = tileFor("_CARGO");
-    if ((!tile || tile->w == 0) &&
-        (f.aircraft_icon_class == "business" || f.aircraft_icon_class == "light"))
-        tile = tileFor("_PRIVATE");
+    const char *keys[kMaxLogoCandidates];
+    const size_t keyCount = logoCandidates(f.is_helicopter, f.is_private, f.operator_icao.c_str(),
+                                           f.is_cargo, f.aircraft_icon_class.c_str(), keys);
+    for (size_t i = 0; i < keyCount && (!tile || tile->w == 0); ++i)
+        tile = tileFor(String(keys[i]));
 
     const bool haveLogo = (tile && tile->w != 0);
     _lastDrewLogo = haveLogo;

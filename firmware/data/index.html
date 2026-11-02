@@ -622,10 +622,10 @@ function panelBadge(f){
 }
 
 function panelMark(f,className){
-  const kind=f.helicopter||f.aircraftClass==='heli'?'heli':f.private?'private'
-    :f.aircraftClass==='business'?'business':f.aircraftClass==='light'?'light':f.cargo?'cargo':'';
+  // The device picks the tile (same rule as the LED); this only reports the facts.
+  const kind=f.helicopter||f.aircraftClass==='heli'?'heli':f.private?'private':'';
   const description=[f.aircraftManufacturer,f.aircraftModel].filter(Boolean).join(' ');
-  return `<div class="panel-mark ${className}" title="${esc(description||f.aircraft||'Aircraft')}"><span class="panel-badge">${esc(panelBadge(f))}</span><canvas class="panel-logo-image" aria-hidden="true" data-operator="${esc(f.operatorIcao||'')}" data-kind="${kind}" data-cargo="${f.cargo?'1':'0'}"></canvas></div>`;
+  return `<div class="panel-mark ${className}" title="${esc(description||f.aircraft||'Aircraft')}"><span class="panel-badge">${esc(panelBadge(f))}</span><canvas class="panel-logo-image" aria-hidden="true" data-operator="${esc(f.operatorIcao||'')}" data-kind="${kind}" data-cls="${esc(f.aircraftClass||'')}" data-cargo="${f.cargo?'1':'0'}"></canvas></div>`;
 }
 
 function decodePanelLogo(buffer){
@@ -646,10 +646,10 @@ function decodePanelLogo(buffer){
 }
 
 function getPanelLogo(canvas){
-  const operator=canvas.dataset.operator||'',kind=canvas.dataset.kind||'',cargo=canvas.dataset.cargo||'0';
-  const cacheKey=`${operator}|${kind}|${cargo}`;
+  const operator=canvas.dataset.operator||'',kind=canvas.dataset.kind||'',cargo=canvas.dataset.cargo||'0',cls=canvas.dataset.cls||'';
+  const cacheKey=`${operator}|${kind}|${cargo}|${cls}`;
   if(!panelLogoCache.has(cacheKey)){
-    const query=new URLSearchParams({operator,kind,cargo});
+    const query=new URLSearchParams({operator,kind,cargo,cls});
     const request=fetch('/api/logo?'+query.toString())
       .then(response=>response.ok?response.arrayBuffer():null)
       .then(decodePanelLogo)

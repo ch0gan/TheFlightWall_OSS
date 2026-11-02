@@ -2,7 +2,11 @@
 """
 Generate generic 32x32 icon tiles for non-airline flights:
   _CARGO.rgb565   - a shipping box (cargo flights)
-  _PRIVATE.rgb565 - a small jet silhouette (private / GA flights)
+  _HELI.rgb565    - a helicopter
+
+The aircraft tiles (_CESSNA, _LIGHT, _BIZJET, _PRIVATE) come from
+gen_generic_tiles.py instead. Run that one after this one: it also embeds all
+of these into the firmware (core/GenericTiles.cpp).
 
 These are plain generic icons (no trademarks), drawn with Pillow. The firmware
 picks them when a flight is classified as cargo or private.
@@ -87,7 +91,6 @@ def helicopter():
 def main():
     os.makedirs(OUT, exist_ok=True)
     save(cargo_box(), "_CARGO.rgb565")
-    save(private_jet(), "_PRIVATE.rgb565")
     save(helicopter(), "_HELI.rgb565")
 
 

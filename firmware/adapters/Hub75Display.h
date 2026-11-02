@@ -92,8 +92,9 @@ private:
     unsigned long _toastUntilMs = 0;
     void drawToastIfActive();
 
-    // Decoded logo tiles (from /logos/<key>.rgb565 on LittleFS), keyed by the
-    // logo key (operator ICAO or a "_HELI"/"_PRIVATE"/"_CARGO" pseudo-key).
+    // Decoded logo tiles, keyed by the logo key: an operator ICAO (from
+    // /logos/<key>.rgb565 on LittleFS) or a generic pseudo-key such as "_HELI" or
+    // "_CESSNA" (built into the firmware, see core/GenericTiles.h).
     struct LogoTile
     {
         uint16_t w = 0;           // w==0 marks a KNOWN-MISSING tile (negative cache)
@@ -104,7 +105,7 @@ private:
     // pool is also kinder to fragmentation than repeated alloc/free.
     //
     // Capacity MUST cover the working set — the distinct logo keys among the cycled
-    // flights (<= maxFlights, plus the _CARGO/_HELI/_PRIVATE pseudo-keys). Cards
+    // flights (<= maxFlights, plus up to six generic pseudo-keys). Cards
     // cycle round-robin, which is the LRU worst case: with capacity below the
     // working set the cache evicts precisely the tile needed next, so the hit rate
     // is ZERO, not merely reduced, and the pool costs RAM while buying nothing.

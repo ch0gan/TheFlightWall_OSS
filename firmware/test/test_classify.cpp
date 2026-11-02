@@ -9,6 +9,7 @@
 #include "../utils/FlightClassify.h"
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 static int failures = 0;
 #define CHECK(cond) do { if (!(cond)) { printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); failures++; } } while (0)
@@ -90,15 +91,51 @@ int main() {
     CHECK(!isGeneralAviation("  BAW286 ")); // leading space tolerated, as in pass 1
 
     // ICAO aircraft type plus enrichment labels select a generic aircraft visual.
-    CHECK(classifyAircraftIcon("C172") == AircraftIconClass::Light);
+    CHECK(classifyAircraftIcon("C172") == AircraftIconClass::Cessna);
     CHECK(classifyAircraftIcon("GLF5") == AircraftIconClass::BusinessJet);
     CHECK(classifyAircraftIcon("R44") == AircraftIconClass::Helicopter);
     CHECK(classifyAircraftIcon("H25B") == AircraftIconClass::BusinessJet);
     CHECK(classifyAircraftIcon("ZZZZ") == AircraftIconClass::Unknown);
-    CHECK(classifyAircraftIcon("ZZZZ", "Cessna", "172S Skyhawk") == AircraftIconClass::Light);
+    CHECK(classifyAircraftIcon("ZZZZ", "Cessna", "172S Skyhawk") == AircraftIconClass::Cessna);
+    CHECK(classifyAircraftIcon("", "Textron Aviation", "172S Skyhawk SP") == AircraftIconClass::Cessna);
+    CHECK(classifyAircraftIcon("C208") == AircraftIconClass::Cessna);
+    CHECK(classifyAircraftIcon("C310") == AircraftIconClass::Cessna);
+    // Citations are Cessnas but stay business jets.
+    CHECK(classifyAircraftIcon("C25A") == AircraftIconClass::BusinessJet);
+    CHECK(classifyAircraftIcon("C56X", "Cessna", "Citation Excel") == AircraftIconClass::BusinessJet);
+    CHECK(classifyAircraftIcon("ZZZZ", "Cessna", "Citation CJ3") == AircraftIconClass::BusinessJet);
+    // "C + digits" is not enough: these are military transports.
+    CHECK(classifyAircraftIcon("C130") == AircraftIconClass::Unknown);
+    CHECK(classifyAircraftIcon("C17") == AircraftIconClass::Unknown);
+    // Other light planes are Light, not Cessna.
+    CHECK(classifyAircraftIcon("P28A") == AircraftIconClass::Light);
+    CHECK(classifyAircraftIcon("SR22") == AircraftIconClass::Light);
+    CHECK(classifyAircraftIcon("ZZZZ", "Piper", "PA-28-181 Archer") == AircraftIconClass::Light);
     CHECK(classifyAircraftIcon("ZZZZ", "Gulfstream Aerospace", "G550") == AircraftIconClass::BusinessJet);
     CHECK(classifyAircraftIcon("AA5") == AircraftIconClass::Light);
     CHECK(classifyAircraftIcon("ZZZZ", "Grumman American", "AA-5 Tiger") == AircraftIconClass::Light);
+
+    // Logo choice, shared by the LED and the web preview.
+    {
+        const char *c[kMaxLogoCandidates];
+        auto first = [&](bool heli, bool priv, const char *op, bool cargo, const char *cls) {
+            return logoCandidates(heli, priv, op, cargo, cls, c) ? std::string(c[0]) : std::string();
+        };
+        CHECK(first(false, true, "", false, "cessna") == "_CESSNA");     // N172SP
+        CHECK(first(false, true, "", false, "light") == "_LIGHT");       // a Piper by tail number
+        CHECK(first(false, true, "", false, "business") == "_BIZJET");
+        CHECK(first(false, true, "", false, "") == "_PRIVATE");          // type unknown
+        CHECK(first(true, true, "", false, "cessna") == "_HELI");        // helicopter wins
+        CHECK(first(false, false, "EJA", false, "business") == "EJA");   // operator tile first
+        // ...and the class tile is the fallback when that operator has none.
+        size_t n = logoCandidates(false, false, "EJA", false, "business", c);
+        CHECK(n == 2 && std::string(c[1]) == "_BIZJET");
+        n = logoCandidates(false, false, "FDX", true, "", c);
+        CHECK(n == 2 && std::string(c[0]) == "FDX" && std::string(c[1]) == "_CARGO");
+        // Private + known type: the unknown icon is still there as a fallback.
+        n = logoCandidates(false, true, "", false, "cessna", c);
+        CHECK(n == 2 && std::string(c[1]) == "_PRIVATE");
+    }
 
     if (failures == 0) { printf("ALL PASS\n"); return 0; }
     printf("%d FAILURES\n", failures);
