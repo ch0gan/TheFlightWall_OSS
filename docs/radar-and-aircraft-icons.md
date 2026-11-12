@@ -129,14 +129,16 @@ The **Total in range** column shows how many eligible aircraft the latest feed h
 
 Airline flights get an airline tile. Private and general-aviation flights have no airline, so they have no logo to show. Six generic 32×32 tiles cover those flights:
 
-| Tile | Shown for |
-|---|---|
-| `_CESSNA` | Known Cessna piston and turboprop types, such as the C172 and C208. A side view with a red stripe. |
-| `_LIGHT` | Other light aircraft, such as Piper, Cirrus, Diamond, Mooney, and Beechcraft. The same side view without the stripe. |
-| `_BIZJET` | Business jets, such as Gulfstream, Learjet, Challenger, Falcon, and Cessna Citation. |
-| `_HELI` | Helicopters. |
-| `_CARGO` | Known cargo operators that have no tile of their own. |
-| `_PRIVATE` | A tail-number flight whose aircraft type is unknown. The web UI labels it "Unknown aircraft". |
+| Tile | Shown for | Status |
+|---|---|---|
+| `_CESSNA` | Known Cessna piston and turboprop types, such as the C172 and C208. A side view with a red stripe. | New |
+| `_LIGHT` | Other light aircraft, such as Piper, Cirrus, Diamond, Mooney, and Beechcraft. The same side view without the stripe. | New |
+| `_BIZJET` | Business jets, such as Gulfstream, Learjet, Challenger, Falcon, and Cessna Citation. | New |
+| `_HELI` | Helicopters. | Unchanged from upstream |
+| `_CARGO` | Known cargo operators that have no tile of their own. | Unchanged from upstream |
+| `_PRIVATE` | A tail-number flight whose aircraft type is unknown. The web UI labels it "Unknown aircraft". | Redrawn as an airliner side view |
+
+The aircraft-type classifier, the tile order, and the embedding of the tiles into the firmware are also new.
 
 ### How a tile is chosen
 
