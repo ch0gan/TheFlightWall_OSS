@@ -107,7 +107,9 @@ struct DisplayLayout
     bool showProgressBar = true;   // route/trip progress bar along the bottom
     bool flightNumberOverVr = true;  // show the flight number in the vertical-rate slot
     // What to show when there are zero flights:
-    //   "dots", "clock", "funfact", "clockfact" (default — alternates the two)
+    //   "dots", "blank", "clock", "funfact", "clockfact" (default — alternates the two),
+    //   or a full-panel radar: "radar" (centered), "radarinfo" (scope + text panel),
+    //   "radarwide" (scaled to the panel width), "radarzoom" (zoomed, rim ticks)
     String noFlightsMode = "clockfact";
 };
 

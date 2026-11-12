@@ -243,9 +243,14 @@
           <option value="clock">Clock</option>
           <option value="funfact">Fun fact</option>
           <option value="clockfact">Clock + fun fact</option>
+          <option value="radar">Radar — centered</option>
+          <option value="radarinfo">Radar — with nearest aircraft</option>
+          <option value="radarwide">Radar — full width</option>
+          <option value="radarzoom">Radar — zoomed</option>
         </select>
       </div>
     </div>
+    <small class="help">The radar screens show the aircraft the wall knows about outside the display radius. Under Flightradar24 they reach out to the FR24 watch radius; other sources only fetch the display radius, so the scope is mostly empty there, and the FlightWall server source sends no positions to plot. <b>Full width</b> fills the panel but cuts off aircraft far to the north and south. <b>Zoomed</b> shows 60% of the range and marks farther aircraft with an amber tick on the rim. Colors and aircraft shape come from <b>LED Radar</b>, later in this section; the nearest aircraft uses the active-aircraft color.</small>
 
     <div class="sec">Fields on each card</div>
     <div class="checks">

@@ -4,3 +4,4 @@ include/web_ui_gz.h
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+config/Secrets.h

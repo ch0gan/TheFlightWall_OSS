@@ -106,6 +106,21 @@ How it behaves:
 
 The **Total in range** column shows how many eligible aircraft the latest feed had in each band. The row of pills below the table shows API call counts for the last 24 hours, which helps you tune the intervals against the request volume.
 
+### Full-panel radar when there are no flights
+
+The **When no flights** setting, under **Display**, has four radar screens. They draw the aircraft that the device knows about outside the display radius, so an empty wall still shows the traffic around it.
+
+![The four radar layouts on a 128×64 panel, enlarged](../firmware/docs/no-flights-radar-options.png)
+
+| Setting | Value | Layout |
+|---|---|---|
+| **Radar — centered** | `radar` | A round scope in the middle. The clock, the aircraft count, the range, and the nearest aircraft's distance and direction sit in the four corners. |
+| **Radar — with nearest aircraft** | `radarinfo` | The scope on the left, with a text panel on the right: the clock, the count, and the nearest aircraft's callsign, distance, and direction. |
+| **Radar — full width** | `radarwide` | The scope scaled to the panel width, so the range reaches the left and right edges. Aircraft far to the north or south fall off the panel. |
+| **Radar — zoomed** | `radarzoom` | A centered scope that shows 60% of the range, but never less than the display radius. Aircraft farther out appear as amber ticks on the rim, in their direction. |
+
+The range is the FR24 watch radius under Flightradar24 in Area mode, and the display radius otherwise. The colours and aircraft shape come from the **LED Radar** settings, and the nearest aircraft uses the active-aircraft colour. The **B** button cycles through these four modes along with the others.
+
 ### Limitations
 
 - **FlightWall server source:** the LED mini radar draws its rings but plots no aircraft, because the server returns a finished flight list and no raw positions. The web UI radars still plot the displayed flights. A fallback cycle to adsb.lol plots normally.
@@ -116,7 +131,7 @@ The **Total in range** column shows how many eligible aircraft the latest feed h
 
 | File | Role |
 |---|---|
-| `firmware/adapters/Hub75Display.cpp` | `drawMiniRadar()` and the Mini card layout changes. |
+| `firmware/adapters/Hub75Display.cpp` | `drawMiniRadar()`, the Mini card layout changes, `drawRadarScreen()` for the four no-flights layouts, and `drawRadarMark()`, which both radars use to draw an aircraft. |
 | `firmware/utils/FetchCadence.h` | `fr24ApproachIntervalMs()`, the band-to-interval rule. |
 | `firmware/src/main.cpp` | Chooses the next interval and passes radar positions to the display and web server. |
 | `firmware/core/FlightDataFetcher.cpp` | Fetches the watch radius, collects radar positions, and keeps watch-ring aircraft off the cards. |

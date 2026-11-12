@@ -188,12 +188,25 @@ private:
             Dots,
             Blank,
             Clock,
-            Fact
+            Fact,
+            Radar
         };
         Screen screen = Screen::Dots;
         long key = -1;      // -1 = static, never needs recomposing
         size_t factIdx = 0; // valid only when screen == Fact
+        uint8_t radarStyle = 0; // valid only when screen == Radar; see RadarStyle
     };
+
+    // The four full-panel radar layouts for the no-flights screen, one per
+    // noFlightsMode value ("radar", "radarinfo", "radarwide", "radarzoom").
+    enum RadarStyle : uint8_t
+    {
+        RadarCentered = 0, // round scope in the middle, text in the corners
+        RadarInfo = 1,     // scope on the left, text panel on the right
+        RadarWide = 2,     // scope scaled to the panel WIDTH; top and bottom clip
+        RadarZoom = 3      // centered, zoomed in; farther aircraft become rim ticks
+    };
+    void drawRadarScreen(uint8_t style);
     NoFlightsFrame noFlightsFrame() const;
 
     void displayNoFlights();                                 // dispatches by noFlightsFrame()

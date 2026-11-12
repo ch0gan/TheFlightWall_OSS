@@ -809,6 +809,71 @@ static inline uint16_t scaledRgb565(uint8_t r, uint8_t g, uint8_t b, uint8_t pct
     return rgb565((uint8_t)(r * pct / 100), (uint8_t)(g * pct / 100), (uint8_t)(b * pct / 100));
 }
 
+// One aircraft on a radar, in the configured shape, centered on (px, py).
+// Shared by the mini radar on each card and the full-panel no-flights radar,
+// so the two cannot draw the same aircraft differently. Takes the colour as
+// its components because the comet fades it.
+static void drawRadarMark(Adafruit_GFX *gfx, int16_t px, int16_t py, double heading,
+                          RadarAircraftShape shape, uint8_t r, uint8_t g, uint8_t b)
+{
+    const uint16_t color = rgb565(r, g, b);
+    const bool hasHeading = renderable(heading);
+    // Pixel `d` steps along the heading (d < 0 is behind the aircraft).
+    auto along = [&](double d, int16_t &ox, int16_t &oy)
+    {
+        const double a = degreesToRadians(heading);
+        ox = px + (int16_t)lround(sin(a) * d);
+        oy = py - (int16_t)lround(cos(a) * d);
+    };
+    switch (shape)
+    {
+    case RadarAircraftShape::Chevron:
+    case RadarAircraftShape::Plane:
+        if (hasHeading)
+        {
+            if (shape == RadarAircraftShape::Chevron)
+                drawRadarSprite(gfx, px, py, heading, kChevronN, kChevronNE, color);
+            else
+                drawRadarSprite(gfx, px, py, heading, kPlaneN, kPlaneNE, color);
+            return;
+        }
+        break; // no heading: plain dot below
+    case RadarAircraftShape::Comet:
+        if (hasHeading)
+        {
+            static const uint8_t kFade[4] = {60, 38, 22, 12}; // % brightness, nearest first
+            for (int i = 3; i >= 0; i--) // far to near, so brighter pixels win overlaps
+            {
+                int16_t tx, ty;
+                along(-(2.0 + i), tx, ty);
+                gfx->drawPixel(tx, ty, scaledRgb565(r, g, b, kFade[i]));
+            }
+        }
+        break;
+    case RadarAircraftShape::NoseTick:
+        if (hasHeading)
+        {
+            for (double d = 2.0; d <= 3.0; d += 1.0)
+            {
+                int16_t tx, ty;
+                along(d, tx, ty);
+                gfx->drawPixel(tx, ty, color);
+            }
+        }
+        break;
+    case RadarAircraftShape::DotTrail:
+    default:
+        if (hasHeading)
+        {
+            int16_t tx, ty;
+            along(-4.0, tx, ty);
+            gfx->drawLine(px, py, tx, ty, color);
+        }
+        break;
+    }
+    gfx->fillCircle(px, py, 1, color);
+}
+
 void Hub75Display::drawMiniRadar(int16_t x, int16_t y, const FlightInfo &current,
                                  const std::vector<FlightInfo> &flights)
 {
@@ -818,12 +883,6 @@ void Hub75Display::drawMiniRadar(int16_t x, int16_t y, const FlightInfo &current
     const uint16_t ring = rgb565(g_settings.radarColorR,
                                  g_settings.radarColorG,
                                  g_settings.radarColorB);
-    const uint16_t aircraftColor = rgb565(g_settings.radarAircraftColorR,
-                                          g_settings.radarAircraftColorG,
-                                          g_settings.radarAircraftColorB);
-    const uint16_t currentColor = rgb565(g_settings.radarActiveColorR,
-                                         g_settings.radarActiveColorG,
-                                         g_settings.radarActiveColorB);
     const uint16_t centerColor = rgb565(g_settings.radarCenterColorR,
                                         g_settings.radarCenterColorG,
                                         g_settings.radarCenterColorB);
@@ -858,65 +917,12 @@ void Hub75Display::drawMiniRadar(int16_t x, int16_t y, const FlightInfo &current
         const double distance = radius * distanceKm / radarRadiusKm;
         const int16_t px = x + center + (int16_t)lround(sin(bearing) * distance);
         const int16_t py = y + center - (int16_t)lround(cos(bearing) * distance);
-        const uint16_t color = isCurrent ? currentColor : aircraftColor;
-        const bool hasHeading = renderable(heading);
-        // Pixel `d` steps along the heading (d < 0 is behind the aircraft).
-        auto along = [&](double d, int16_t &ox, int16_t &oy)
-        {
-            const double a = degreesToRadians(heading);
-            ox = px + (int16_t)lround(sin(a) * d);
-            oy = py - (int16_t)lround(cos(a) * d);
-        };
-        switch (shape)
-        {
-        case RadarAircraftShape::Chevron:
-        case RadarAircraftShape::Plane:
-            if (hasHeading)
-            {
-                if (shape == RadarAircraftShape::Chevron)
-                    drawRadarSprite(_canvas, px, py, heading, kChevronN, kChevronNE, color);
-                else
-                    drawRadarSprite(_canvas, px, py, heading, kPlaneN, kPlaneNE, color);
-                return;
-            }
-            break; // no heading: plain dot below
-        case RadarAircraftShape::Comet:
-            if (hasHeading)
-            {
-                const uint8_t r = isCurrent ? g_settings.radarActiveColorR : g_settings.radarAircraftColorR;
-                const uint8_t g = isCurrent ? g_settings.radarActiveColorG : g_settings.radarAircraftColorG;
-                const uint8_t b = isCurrent ? g_settings.radarActiveColorB : g_settings.radarAircraftColorB;
-                static const uint8_t kFade[4] = {60, 38, 22, 12}; // % brightness, nearest first
-                for (int i = 3; i >= 0; i--) // far to near, so brighter pixels win overlaps
-                {
-                    int16_t tx, ty;
-                    along(-(2.0 + i), tx, ty);
-                    _canvas->drawPixel(tx, ty, scaledRgb565(r, g, b, kFade[i]));
-                }
-            }
-            break;
-        case RadarAircraftShape::NoseTick:
-            if (hasHeading)
-            {
-                for (double d = 2.0; d <= 3.0; d += 1.0)
-                {
-                    int16_t tx, ty;
-                    along(d, tx, ty);
-                    _canvas->drawPixel(tx, ty, color);
-                }
-            }
-            break;
-        case RadarAircraftShape::DotTrail:
-        default:
-            if (hasHeading)
-            {
-                int16_t tx, ty;
-                along(-4.0, tx, ty);
-                _canvas->drawLine(px, py, tx, ty, color);
-            }
-            break;
-        }
-        _canvas->fillCircle(px, py, 1, color);
+        if (isCurrent)
+            drawRadarMark(_canvas, px, py, heading, shape, g_settings.radarActiveColorR,
+                          g_settings.radarActiveColorG, g_settings.radarActiveColorB);
+        else
+            drawRadarMark(_canvas, px, py, heading, shape, g_settings.radarAircraftColorR,
+                          g_settings.radarAircraftColorG, g_settings.radarAircraftColorB);
     };
 
     _canvas->drawPixel(x + center, y + center, centerColor);
@@ -1544,6 +1550,27 @@ Hub75Display::NoFlightsFrame Hub75Display::noFlightsFrame() const
         f.screen = NoFlightsFrame::Screen::Blank; // key stays -1: static
         return f;
     }
+
+    // The radar screens. New positions arrive with each fetch, and a fetch
+    // already bumps _dataVersion, so the key only has to move with the clock
+    // that three of the four layouts show: minute of day, in its own range.
+    if (mode.startsWith("radar"))
+    {
+        f.screen = NoFlightsFrame::Screen::Radar;
+        f.radarStyle = mode == "radarinfo"   ? RadarInfo
+                       : mode == "radarwide" ? RadarWide
+                       : mode == "radarzoom" ? RadarZoom
+                                             : RadarCentered;
+        f.key = 2000000L;
+        const time_t now = time(nullptr);
+        if (now >= 100000)
+        {
+            struct tm tmv;
+            localtime_r(&now, &tmv);
+            f.key += (long)tmv.tm_hour * 60L + tmv.tm_min;
+        }
+        return f;
+    }
     if (!wantClock && !wantFact)
         return f; // "dots" or an unknown value -> static
 
@@ -1602,10 +1629,265 @@ void Hub75Display::displayNoFlights()
     case NoFlightsFrame::Screen::Blank:
         present(); // canvas was cleared by the caller
         return;
+    case NoFlightsFrame::Screen::Radar:
+        drawRadarScreen(f.radarStyle);
+        return;
     case NoFlightsFrame::Screen::Dots:
         break;
     }
     displayLoadingScreen();
+}
+
+// "10:42" (compact) or "10:42 AM", in local time. False before NTP has synced,
+// in which case the caller leaves the clock off rather than showing 12:00.
+static bool radarClock(char *out, size_t outLen, bool withSuffix)
+{
+    const time_t now = time(nullptr);
+    if (now < 100000)
+        return false;
+    struct tm tmv;
+    localtime_r(&now, &tmv);
+    formatClock12(tmv.tm_hour, tmv.tm_min, out, outLen);
+    if (!withSuffix)
+    {
+        char *sp = strchr(out, ' ');
+        if (sp)
+            *sp = '\0';
+    }
+    return true;
+}
+
+// Eight-point compass name for a bearing in degrees.
+static const char *compass8(double bearingDeg)
+{
+    static const char *const kNames[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+    int i = (int)lround(bearingDeg / 45.0) % 8;
+    if (i < 0)
+        i += 8;
+    return kNames[i];
+}
+
+/**
+ * Full-panel radar for the no-flights screen.
+ *
+ * The point of it: "no flights" means none inside the DISPLAY radius, but under
+ * Flightradar24 the device fetches out to the larger watch radius, so the sky
+ * it knows about is often busy. This draws that sky.
+ *
+ * Range: the watch radius under Flightradar24 in Area mode, otherwise the
+ * display radius -- the other sources fetch no further than that, so a larger
+ * scope would only be empty space. Zoom shows 60% of that range, but never less
+ * than the display radius.
+ *
+ * Colours come from the LED Radar settings, the same ones the card's mini radar
+ * uses: rings, other aircraft, active aircraft (here: the NEAREST one), center
+ * point, inside the inner ring, and between the rings. The display-radius ring
+ * is drawn at full ring colour and the band and range rings at half, so the
+ * boundary that decides what reaches a card stands out.
+ */
+void Hub75Display::drawRadarScreen(uint8_t style)
+{
+    if (!_canvas)
+        return;
+    const int16_t W = (int16_t)_matrixWidth;
+    const int16_t H = (int16_t)_matrixHeight;
+
+    const bool fr24 = g_settings.mode == TrackingMode::Area &&
+                      g_settings.positionSource == PositionSource::FlightRadar24;
+    const double displayKm = max(0.1, g_settings.radiusKm);
+    // Same clamping main.cpp applies when it picks the FR24 polling band.
+    const double fullKm = fr24 ? max(displayKm, g_settings.fr24WatchRadiusKm) : displayKm;
+    const double outerKm = min(fullKm, max(displayKm, g_settings.fr24OuterBandKm));
+    const double innerKm = min(displayKm, max(0.0, g_settings.fr24InnerBandKm));
+
+    // The info panel needs ~10 text columns beside the scope; on a panel too
+    // narrow for that, fall back to the centered layout rather than overlap.
+    const int16_t rScope = (int16_t)max(4, H / 2 - 1); // 31 on a 64-row panel
+    if (style == RadarInfo && W < 2 * rScope + 4 + 36)
+        style = RadarCentered;
+
+    int16_t cx = W / 2;
+    const int16_t cy = H / 2;
+    double rangeKm = fullKm;
+    switch (style)
+    {
+    case RadarInfo:
+        cx = rScope + 1;
+        break;
+    case RadarZoom:
+        rangeKm = max(displayKm, fullKm * 0.6);
+        break;
+    default:
+        break;
+    }
+    // Wide scales the range to the half-WIDTH, so north and south run off the
+    // panel; every other layout fits the whole circle into the height.
+    const double pxPerKm = (style == RadarWide ? (W / 2 - 1) : rScope) / rangeKm;
+    const int16_t rRim = (int16_t)lround(rangeKm * pxPerKm);
+
+    const uint16_t ring = rgb565(g_settings.radarColorR, g_settings.radarColorG, g_settings.radarColorB);
+    const uint16_t ringDim = scaledRgb565(g_settings.radarColorR, g_settings.radarColorG,
+                                          g_settings.radarColorB, 50);
+    const uint16_t centerColor = rgb565(g_settings.radarCenterColorR, g_settings.radarCenterColorG,
+                                        g_settings.radarCenterColorB);
+    const uint16_t innerColor = rgb565(g_settings.radarInnerColorR, g_settings.radarInnerColorG,
+                                       g_settings.radarInnerColorB);
+    const uint16_t bandColor = rgb565(g_settings.radarBandColorR, g_settings.radarBandColorG,
+                                      g_settings.radarBandColorB);
+    const uint16_t rimTickColor = rgb565(255, 160, 0); // amber: "farther out, this way"
+    const RadarAircraftShape shape = (RadarAircraftShape)g_settings.radarAircraftShape;
+
+    // ---- Scope ----
+    _canvas->fillScreen(0);
+    _canvas->fillCircle(cx, cy, rRim, bandColor);
+    const int16_t rInner = (int16_t)lround(innerKm * pxPerKm);
+    if (rInner > 1)
+        _canvas->fillCircle(cx, cy, rInner - 1, innerColor);
+    auto drawRing = [&](double km, uint16_t color)
+    {
+        const int16_t r = (int16_t)lround(km * pxPerKm);
+        if (r > 1 && r <= rRim)
+            _canvas->drawCircle(cx, cy, r, color);
+    };
+    drawRing(rangeKm, ringDim);
+    if (fr24)
+        drawRing(outerKm, ringDim);
+    drawRing(innerKm, ringDim);
+    drawRing(displayKm, ring);
+    _canvas->drawPixel(cx, cy, centerColor);
+    _canvas->drawPixel(cx - 1, cy, centerColor);
+    _canvas->drawPixel(cx + 1, cy, centerColor);
+    _canvas->drawPixel(cx, cy - 1, centerColor);
+    _canvas->drawPixel(cx, cy + 1, centerColor);
+
+    // ---- Aircraft ----
+    // Only Area mode has radar positions; in Flights mode, and under the
+    // FlightWall server source, the list is empty and the scope stays clear.
+    struct Blip
+    {
+        double km;
+        double bearing;
+        const StateVector *s;
+    };
+    std::vector<Blip> blips;
+    if (_radarStates && g_settings.mode == TrackingMode::Area)
+    {
+        blips.reserve(_radarStates->size());
+        for (const StateVector &s : *_radarStates)
+        {
+            if (!renderable(s.lat) || !renderable(s.lon))
+                continue;
+            const double km = renderable(s.distance_km)
+                                  ? s.distance_km
+                                  : haversineKm(g_settings.centerLat, g_settings.centerLon, s.lat, s.lon);
+            const double brg = renderable(s.bearing_deg)
+                                   ? s.bearing_deg
+                                   : computeBearingDeg(g_settings.centerLat, g_settings.centerLon, s.lat, s.lon);
+            blips.push_back({km, brg, &s});
+        }
+    }
+    size_t nearest = SIZE_MAX;
+    for (size_t i = 0; i < blips.size(); i++)
+        if (nearest == SIZE_MAX || blips[i].km < blips[nearest].km)
+            nearest = i;
+
+    auto plot = [&](const Blip &b, bool isNearest)
+    {
+        const double a = degreesToRadians(b.bearing);
+        if (b.km <= rangeKm)
+        {
+            const int16_t px = cx + (int16_t)lround(sin(a) * b.km * pxPerKm);
+            const int16_t py = cy - (int16_t)lround(cos(a) * b.km * pxPerKm);
+            if (isNearest)
+                drawRadarMark(_canvas, px, py, b.s->heading, shape, g_settings.radarActiveColorR,
+                              g_settings.radarActiveColorG, g_settings.radarActiveColorB);
+            else
+                drawRadarMark(_canvas, px, py, b.s->heading, shape, g_settings.radarAircraftColorR,
+                              g_settings.radarAircraftColorG, g_settings.radarAircraftColorB);
+        }
+        else if (style == RadarZoom)
+        {
+            // A 3-pixel tick on the inside of the rim, pointing at the aircraft.
+            for (int k = 0; k < 3; k++)
+                _canvas->drawPixel(cx + (int16_t)lround(sin(a) * (rRim - k)),
+                                   cy - (int16_t)lround(cos(a) * (rRim - k)), rimTickColor);
+        }
+    };
+    for (size_t i = 0; i < blips.size(); i++)
+        if (i != nearest)
+            plot(blips[i], false);
+    if (nearest != SIZE_MAX)
+        plot(blips[nearest], true); // last, so it sits on top
+
+    // ---- Text ----
+    const uint16_t text = textColor();
+    const uint16_t dim = scaledRgb565(g_settings.textColorR, g_settings.textColorG,
+                                      g_settings.textColorB, 55);
+    const int16_t bottomY = (int16_t)(H - 8);
+    auto rightAligned = [&](int16_t y, const String &s, uint16_t color, bool backed)
+    {
+        const int16_t x = (int16_t)(W - 1 - (int16_t)s.length() * 6);
+        if (backed)
+            _canvas->fillRect(x - 1, y - 1, (int16_t)s.length() * 6 + 1, 9, 0);
+        drawTextLine(x, y, s, color);
+    };
+    auto leftAligned = [&](int16_t y, const String &s, uint16_t color, bool backed)
+    {
+        if (backed)
+            _canvas->fillRect(0, y - 1, (int16_t)s.length() * 6 + 2, 9, 0);
+        drawTextLine(1, y, s, color);
+    };
+
+    char clockBuf[9]; // "12:00 AM" + NUL
+    const String count = String((unsigned)blips.size()) + " AC";
+    String nearestShort; // "4.6NE"
+    if (nearest != SIZE_MAX)
+        nearestShort = miniDistance(blips[nearest].km, false) + compass8(blips[nearest].bearing);
+
+    switch (style)
+    {
+    case RadarInfo:
+    {
+        const int16_t tx = (int16_t)(2 * rScope + 4);
+        const int cols = (W - tx) / 6;
+        if (radarClock(clockBuf, sizeof(clockBuf), true))
+            drawTextLine(tx, 1, truncateToColumns(String(clockBuf), cols), text);
+        if (nearest == SIZE_MAX)
+        {
+            drawTextLine(tx, 14, truncateToColumns(String("No aircraft"), cols), dim);
+            break;
+        }
+        drawTextLine(tx, 14, truncateToColumns(String((unsigned)blips.size()) + " in range", cols), dim);
+        drawTextLine(tx, 30, truncateToColumns(String("Nearest"), cols), dim);
+        const StateVector &s = *blips[nearest].s;
+        const String ident = s.callsign.length()       ? s.callsign
+                             : s.registration.length() ? s.registration
+                                                       : s.icao24;
+        drawTextLine(tx, 40, truncateToColumns(ident, cols), text);
+        drawTextLine(tx, 50,
+                     truncateToColumns(miniDistance(blips[nearest].km) + " " +
+                                           compass8(blips[nearest].bearing),
+                                       cols),
+                     text);
+        break;
+    }
+    case RadarWide:
+        // The scope fills the panel here, so the text gets a black backing.
+        if (radarClock(clockBuf, sizeof(clockBuf), false))
+            leftAligned(1, String(clockBuf), text, true);
+        rightAligned(bottomY, count, dim, true);
+        break;
+    default: // RadarCentered and RadarZoom: one item per corner
+        if (radarClock(clockBuf, sizeof(clockBuf), false))
+            leftAligned(1, String(clockBuf), text, false);
+        rightAligned(1, count, text, false);
+        leftAligned(bottomY, miniDistance(rangeKm), dim, false);
+        if (nearestShort.length())
+            rightAligned(bottomY, nearestShort, text, false);
+        break;
+    }
+
+    present();
 }
 
 // Large centered HH:MM with a "Mon Jun 17" date line below. Caller guarantees

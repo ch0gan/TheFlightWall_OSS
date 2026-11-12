@@ -544,13 +544,15 @@ static void handleButtons()
 
     if (e.clickB)
     {
-        static const char *kModes[] = {"dots", "blank", "clock", "funfact", "clockfact"};
+        static const char *kModes[] = {"dots", "blank", "clock", "funfact", "clockfact",
+                                       "radar", "radarinfo", "radarwide", "radarzoom"};
+        constexpr size_t kModeCount = sizeof(kModes) / sizeof(kModes[0]);
         size_t i = 0;
-        while (i < 5 && g_settings.layout.noFlightsMode != kModes[i])
+        while (i < kModeCount && g_settings.layout.noFlightsMode != kModes[i])
             ++i;
-        if (i >= 5)
+        if (i >= kModeCount)
             i = 0; // unknown value -> land on a known one rather than guessing
-        g_settings.layout.noFlightsMode = kModes[(i + 1) % 5];
+        g_settings.layout.noFlightsMode = kModes[(i + 1) % kModeCount];
         markSettingsDirty();
         g_display.markFlightsUpdated();
         g_display.showToast(g_settings.layout.noFlightsMode);
