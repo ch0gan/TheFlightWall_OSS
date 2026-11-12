@@ -1,11 +1,12 @@
-# Radar and aircraft-type logos
+# Radar, card fields, and aircraft-type logos
 
-This document describes two additions to the FlightWall firmware and web UI:
+This document describes three additions to the FlightWall firmware and web UI:
 
 1. **Radar** — a live plot of nearby aircraft on the LED card and in the web UI, plus distance-based polling for the Flightradar24 source.
-2. **Aircraft-type logos** — generic tiles (Cessna, light aircraft, business jet, helicopter, cargo, unknown) for flights that have no airline logo.
+2. **Card field options** — three more fields that you can turn on or off for each flight card: the logo, the distance from center, and a route progress bar.
+3. **Aircraft-type logos** — generic tiles (Cessna, light aircraft, business jet, helicopter, cargo, unknown) for flights that have no airline logo.
 
-Both features are self-contained. Each section ends with a list of the files involved, so you can lift either one into another branch.
+Each feature is self-contained. Each section ends with a list of the files involved, so you can lift any one of them into another branch.
 
 ## Radar
 
@@ -38,6 +39,8 @@ To turn the radar on:
 3. Optional: set the six colours (rings, active aircraft, other aircraft, center point, inside the inner ring, between the rings).
 4. Optional: select an **Aircraft shape**.
 5. Save.
+
+![LED Radar settings: the on/off checkbox, six colour pickers, and the aircraft shape list](../images/radar-led-settings.png)
 
 The aircraft shapes are:
 
@@ -122,6 +125,47 @@ The **Total in range** column shows how many eligible aircraft the latest feed h
 | `firmware/core/WebConfigServer.cpp` | `GET /api/radar` and the band counts in `GET /api/status`. |
 | `firmware/data/index.html` | The Area radar card, the mini radar preview, and the settings controls. |
 | `firmware/test/test_fetchcadence.cpp` | Host tests for the interval rule. |
+
+## Card field options
+
+![Fields on each card: twelve checkboxes, including Logo, Distance from center, and Progress bar](../images/card-field-options.png)
+
+The **Fields on each card** list in the web UI, under **Display**, controls what each flight card shows. Three of the twelve checkboxes are additions. All three are on by default.
+
+| Checkbox | What it controls |
+|---|---|
+| **Logo** | The logo tile on the Mini card. When you clear it, the airline, route, and aircraft lines use the full width of the card. |
+| **Distance from center** | The distance between the aircraft and your configured center point, labeled `Dst`. |
+| **Progress bar** | A bar along the bottom of the card that shows how much of the route the aircraft has flown. |
+
+The other nine checkboxes are unchanged from upstream: **Airline + flight**, **Route**, **ETA**, **Aircraft type**, **Altitude**, **Speed**, **Heading**, **Vertical rate**, and **Flight # (instead of vertical rate)**.
+
+### Distance from center
+
+The distance uses the unit that you select in **Tracking > Distance units**: kilometers, miles, or nautical miles. The unit setting is also an addition, and it applies to the radius fields and the web UI flight list as well.
+
+Where the distance appears depends on the radar:
+
+- **Radar off:** the distance sits at the right of the top lines, when the route line leaves room for it.
+- **Radar on:** the distance moves to the bottom row, as `Dst:3.2nm`.
+
+### Progress bar
+
+Upstream draws a progress bar only on a tracked card, which is a flight that you watch through a FlightWall server. That bar is based on the flight's schedule.
+
+The addition is a route bar for every other card. When a flight's origin and destination coordinates are both known, the bar shows the share of the great-circle distance that the aircraft has covered. A flight with no resolved route has no bar.
+
+The **Progress bar** checkbox turns both bars on or off. A **Progress bar color** setting, also under **Display**, sets the fill colour.
+
+### Card field files
+
+| File | Role |
+|---|---|
+| `firmware/core/Settings.h`, `Settings.cpp` | `showLogo`, `showDistance`, and `showProgressBar` in `DisplayLayout`, plus the progress bar colour and `distanceUnit`. |
+| `firmware/adapters/Hub75Display.cpp` | `displayMiniCard()` applies the three options and draws the route bar. |
+| `firmware/utils/RouteDistance.h` | `routeProgressPct()`, the great-circle share of the route flown. |
+| `firmware/data/index.html` | The checkboxes, the colour and unit controls, and the panel preview. |
+| `firmware/test/test_routedistance.cpp` | Host tests for the route progress calculation. |
 
 ## Aircraft-type logos
 
